@@ -20,6 +20,7 @@
 import type { ComponentType } from 'react';
 
 // <custom:intent-imports>
+import { IconChecklist, IconMicrophone, IconSparkles, IconUserPlus, IconUserShare } from '@tabler/icons-react';
 // </custom:intent-imports>
 
 export interface IntentLink {
@@ -42,6 +43,11 @@ export interface IntentLink {
 
 export const INTENTS: IntentLink[] = [
   // <custom:intents>
+  { path: '/intents/besuch-starten-und-aufgaben-abhaken', label: { de: 'Besuch starten und Aufgaben abhaken', en: 'Start visit and check off tasks' }, icon: IconChecklist, description: 'Besuch starten und die heutigen Aufgaben erledigen oder mit Grund als nicht durchgeführt markieren' },
+  { path: '/intents/dokumentation-speichern', label: { de: 'Dokumentation speichern', en: 'Save documentation' }, icon: IconMicrophone, description: 'Diktierten oder getippten Text mit Foto und Anhang speichern und den Besuch beenden' },
+  { path: '/intents/ki-vorschlaege-pruefen', label: { de: 'KI-Vorschläge prüfen', en: 'Review AI suggestions' }, icon: IconSparkles, description: 'KI-Vorschläge mit Belegstelle aktivieren, anpassen oder verwerfen' },
+  { path: '/intents/betreuung-zuordnen', label: { de: 'Betreuung zuordnen', en: 'Assign caregiver' }, icon: IconUserPlus, description: 'Hauptbetreuung oder Vertretung einer betreuten Person zuordnen' },
+  { path: '/intents/vertretung-aktivieren', label: { de: 'Vertretung aktivieren', en: 'Activate substitute' }, icon: IconUserShare, description: 'Ausfall der Hauptbetreuung melden und Vertretung manuell aktivieren' },
   // </custom:intents>
 ];
 
@@ -52,7 +58,7 @@ export const INTENTS: IntentLink[] = [
  * purpose — a scaffold update resets it to false (self-healing if Phase 2
  * never ran).
  */
-export const INTENTS_PENDING = true;
+export const INTENTS_PENDING = false;
 
 /**
  * When the Phase-1 bundle was deployed (ISO, set by the service together with

@@ -57,6 +57,21 @@ export type MessageFieldKey<E extends EntityKey> = E extends keyof MessageFields
 
 export const REQUIRED_MESSAGES: { [E in EntityKey]?: Partial<Record<MessageFieldKey<E>, string>> } = {
   // <custom:messages>
+  qualifikationsart: { bezeichnung: "Bitte eine Bezeichnung eingeben." },
+  personentyp: { bezeichnung: "Bitte eine Bezeichnung eingeben.", systemrolle: "Bitte eine Systemrolle wählen." },
+  person: { vorname: "Bitte den Vornamen eingeben.", nachname: "Bitte den Nachnamen eingeben.", personentyp: "Bitte einen Personentyp wählen." },
+  qualifikation_einer_person: { person: "Bitte eine Person wählen.", qualifikationsart: "Bitte eine Qualifikationsart wählen." },
+  betreute_person: { vorname: "Bitte den Vornamen eingeben.", nachname: "Bitte den Nachnamen eingeben.", geburtsdatum: "Bitte das Geburtsdatum wählen.", status: "Bitte einen Status wählen." },
+  diagnose: { betreute_person: "Bitte eine betreute Person wählen.", bezeichnung: "Bitte die Diagnose eingeben." },
+  medikationsplan: { betreute_person: "Bitte eine betreute Person wählen.", medikament: "Bitte das Medikament eingeben." },
+  "massnahme_(pflegeplan)": { betreute_person: "Bitte eine betreute Person wählen.", bezeichnung: "Bitte die Maßnahme eingeben.", wiederholungsregel: "Bitte eine Wiederholung wählen." },
+  besuch: { betreute_person: "Bitte eine betreute Person wählen.", betreuungsperson: "Bitte eine Betreuungsperson wählen.", beginn: "Bitte den Beginn wählen.", status: "Bitte einen Status wählen." },
+  ereignisprotokoll: { zeitstempel: "Bitte den Zeitpunkt wählen.", akteur_typ: "Bitte den Akteurstyp wählen.", aktion: "Bitte die Aktion eingeben." },
+  betreuungszuordnung: { betreute_person: "Bitte eine betreute Person wählen.", betreuungsperson: "Bitte eine Betreuungsperson wählen.", rolle: "Bitte die Rolle wählen.", gueltig_ab: "Bitte das Startdatum wählen." },
+  dokumentation: { besuch: "Bitte einen Besuch wählen.", betreute_person: "Bitte eine betreute Person wählen.", autor: "Bitte den Autor wählen.", text: "Bitte den Text diktieren oder tippen.", eingabeart: "Bitte die Eingabeart wählen." },
+  anhang_zur_dokumentation: { typ: "Bitte den Typ wählen.", dokumentation: "Bitte eine Dokumentation wählen." },
+  ki_extrakt: { dokumentation: "Bitte eine Dokumentation wählen.", kategorie: "Bitte eine Kategorie wählen.", inhalt: "Bitte den Inhalt eingeben.", belegstelle: "Bitte die Belegstelle eingeben.", status: "Bitte einen Status wählen." },
+  aufgabe: { betreute_person: "Bitte eine betreute Person wählen.", titel: "Bitte einen Titel eingeben.", aufgabenart: "Bitte die Aufgabenart wählen.", herkunft: "Bitte die Herkunft wählen.", prioritaet: "Bitte die Priorität wählen.", status: "Bitte einen Status wählen." },
   // </custom:messages>
 };
 

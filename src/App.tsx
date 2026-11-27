@@ -18,6 +18,12 @@ const IntentFields = lazy(() => import('@/pages/IntentFields'));
 const IntentsAdmin = lazy(() => import('@/pages/IntentsAdmin'));
 const AppMap = lazy(() => import('@/pages/AppMap'));
 // <custom:imports>
+const IntentBesuchStartenUndAufgabenAbhakenPage = lazy(() => import('@/pages/intents/BesuchStartenUndAufgabenAbhakenPage'));
+import { DashboardSkeleton } from '@/components/DashboardStates';
+const IntentDokumentationSpeichernPage = lazy(() => import('@/pages/intents/DokumentationSpeichernPage'));
+const IntentKiVorschlaegePruefenPage = lazy(() => import('@/pages/intents/KiVorschlaegePruefenPage'));
+const IntentBetreuungZuordnenPage = lazy(() => import('@/pages/intents/BetreuungZuordnenPage'));
+const IntentVertretungAktivierenPage = lazy(() => import('@/pages/intents/VertretungAktivierenPage'));
 // </custom:imports>
 
 // Lazy: public pages live outside <Layout> and only load on /#/public/:slug —
@@ -95,6 +101,11 @@ export default function App() {
                 <Route path="verwaltung/oeffentliche-seiten" element={<PublicPagesAdmin />} />
                 <Route path="verwaltung/oeffentliche-seiten/:slug/felder" element={<PublicPageFields />} />
                 {/* <custom:routes> */}
+                <Route path="intents/besuch-starten-und-aufgaben-abhaken" element={<Suspense fallback={<DashboardSkeleton />}><IntentBesuchStartenUndAufgabenAbhakenPage /></Suspense>} />
+                <Route path="intents/dokumentation-speichern" element={<Suspense fallback={<DashboardSkeleton />}><IntentDokumentationSpeichernPage /></Suspense>} />
+                <Route path="intents/ki-vorschlaege-pruefen" element={<Suspense fallback={<DashboardSkeleton />}><IntentKiVorschlaegePruefenPage /></Suspense>} />
+                <Route path="intents/betreuung-zuordnen" element={<Suspense fallback={<DashboardSkeleton />}><IntentBetreuungZuordnenPage /></Suspense>} />
+                <Route path="intents/vertretung-aktivieren" element={<Suspense fallback={<DashboardSkeleton />}><IntentVertretungAktivierenPage /></Suspense>} />
                 {/* </custom:routes> */}
                 {/* An unknown hash (a bookmark from before a rebuild renamed the
                     flows, a mistyped link) must not be a blank page. */}
