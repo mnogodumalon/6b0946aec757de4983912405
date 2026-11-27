@@ -1,0 +1,919 @@
+# Scaffold key file contents — part 3/4.
+Same rule as .scaffold_context: these files are pre-generated; never Read the source files themselves.
+
+## src/App.tsx
+```
+import '@/lib/sentry';
+import '@/lib/stale-bundle';
+import { Fragment, lazy, Suspense, useEffect, useState } from 'react';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { locale, onLocaleChange, syncProfileLocale, t } from '@/i18n';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ErrorBusProvider } from '@/components/ErrorBus';
+import { IntentPolicyLoader } from '@/components/IntentPolicyLoader';
+// Lazy: the dashboard's chrome and pages load only when a dashboard route is
+// opened. A visitor on #/public/:slug paid for all of it (header, drawer,
+// overview, admin pages — 1068 KB main chunk, 3,8 s on a slow phone; P-2,
+// 03.11.2026) although the public page needs none of it.
+const Layout = lazy(() => import('@/components/Layout').then(m => ({ default: m.Layout })));
+const DashboardReady = lazy(() => import('@/pages/DashboardReady'));
+const PublicPagesAdmin = lazy(() => import('@/pages/PublicPagesAdmin'));
+const PublicPageFields = lazy(() => import('@/pages/PublicPageFields'));
+const IntentFields = lazy(() => import('@/pages/IntentFields'));
+const IntentsAdmin = lazy(() => import('@/pages/IntentsAdmin'));
+const AppMap = lazy(() => import('@/pages/AppMap'));
+// <custom:imports>
+// </custom:imports>
+
+// Lazy: public pages live outside <Layout> and only load on /#/public/:slug —
+// dashboard users never pay for them, anonymous visitors skip the dashboard.
+const PublicPage = lazy(() => import('@/pages/public/PublicPage'));
+
+function RouteNotFound() {
+  const { pathname } = useLocation();
+  return (
+    <div className="max-w-xl mx-auto mt-16 rounded-[27px] bg-card shadow-lg p-8 space-y-3" role="alert">
+      <h1 className="text-xl font-semibold tracking-tight">{t('nf_title')}</h1>
+      <p className="text-sm text-muted-foreground break-all">{t('nf_message', { path: pathname })}</p>
+      <a href="#/" className="inline-flex text-sm font-medium text-primary hover:underline">{t('nf_back')}</a>
+    </div>
+  );
+}
+
+// Language switch = full remount below the router: every t()/label lookup
+// re-evaluates, the la-* widgets re-read <html lang>. Sits inside HashRouter
+// so the current route survives (it re-reads the URL hash).
+function LocaleGate({ children }: { children: React.ReactNode }) {
+  // The i18n layer notifies for locale CHANGES and for catalog/overlay
+  // ARRIVALS (same locale, new data). `setCurrent(locale)` bailed out on
+  // the arrivals — when locales/pages.json lost the race against the first
+  // paint, the page stayed frozen in the build language until the next
+  // locale switch. A generation counter accepts every notification; the
+  // key must include it because `children` is the same element object on
+  // every gate render (React would bail out without the remount).
+  const [gen, setGen] = useState(0);
+  useEffect(() => onLocaleChange(() => setGen((g) => g + 1)), []);
+  // Adopt the LA profile language (SSOT) — but never on public routes,
+  // where the visitor's browser language governs (initPublicLocale).
+  useEffect(() => {
+    if (!window.location.hash.startsWith('#/public')) void syncProfileLocale();
+  }, []);
+  return <Fragment key={`${locale}:${gen}`}>{children}</Fragment>;
+}
+
+const APPGROUP_ID = '6b0946aec757de4983912405';
+
+// The assistant (chat + Werkzeuge + code viewer) is platform chrome:
+// <la-klar-assistant>, loaded via /actions-agent/embed/embed.js (appended
+// dynamically in index.html). Own shadow DOM, own styling. Mounted OUTSIDE
+// LocaleGate on purpose — its keyed remounts (locale switch, catalog
+// arrival) must not tear the element down mid-chat; the element follows
+// <html lang> itself. Hidden on anonymous public routes; its 401 guard is
+// the backstop, not the mechanism.
+function AssistantMount() {
+  const location = useLocation();
+  if (location.pathname.startsWith('/public')) return null;
+  return <la-klar-assistant appgroup-id={APPGROUP_ID} />;
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <ErrorBusProvider>
+        <HashRouter>
+            <AssistantMount />
+            <IntentPolicyLoader />
+            <LocaleGate>
+            <Routes>
+              <Route path="public/:slug" element={<Suspense fallback={null}><PublicPage /></Suspense>} />
+              {/* Routes WITHOUT the dashboard chrome (a beamer view, a kiosk page, a print
+                  sheet): header, drawer and assistant stay away, the route still runs inside
+                  the app (locale, error boundary, Sentry). Wired by
+                  `node scripts/wire-intent.mjs --bare`, kept across updates (S-2). */}
+              {/* <custom:bare-routes> */}
+              {/* </custom:bare-routes> */}
+              <Route element={<Suspense fallback={null}><Layout /></Suspense>}>
+                <Route index element={<DashboardReady />} />
+                <Route path="verwaltung/ablaeufe" element={<IntentsAdmin />} />
+                <Route path="verwaltung/anwendung" element={<AppMap />} />
+                <Route path="verwaltung/ablaeufe/:slug/felder" element={<IntentFields />} />
+                <Route path="verwaltung/oeffentliche-seiten" element={<PublicPagesAdmin />} />
+                <Route path="verwaltung/oeffentliche-seiten/:slug/felder" element={<PublicPageFields />} />
+                {/* <custom:routes> */}
+                {/* </custom:routes> */}
+                {/* An unknown hash (a bookmark from before a rebuild renamed the
+                    flows, a mistyped link) must not be a blank page. */}
+                <Route path="*" element={<RouteNotFound />} />
+              </Route>
+            </Routes>
+            </LocaleGate>
+        </HashRouter>
+      </ErrorBusProvider>
+    </ErrorBoundary>
+  );
+}
+
+```
+
+## src/components/Layout.tsx
+```
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { IconAlertCircle } from '@tabler/icons-react';
+import { useState, useEffect, useRef } from 'react';
+import { IntentsNav } from '@/components/IntentsNav';
+import { ActionsSidebar } from '@/components/ActionsSidebar';
+import { Button } from '@/components/ui/button';
+import { VersionCheck } from '@/components/VersionCheck';
+import { PlanNotice } from '@/components/PlanNotice';
+// Sprachwechsel kommt aus der Plattform-Topnav: sie schreibt <html lang>,
+// src/i18n beobachtet das Attribut und LocaleGate remountet den Baum.
+import { t, appgroupLabel } from '@/i18n';
+
+const APP_ID = '6b094668dcf73c7868fd6fc4';
+const APPGROUP_ID = '6b0946aec757de4983912405';
+
+const IS_EMBED = new URLSearchParams(window.location.search).has('embed') || window.navigator.userAgent.startsWith('LivingAppsMobile');
+
+export function Layout() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [authError, setAuthError] = useState(false);
+  const drawerRef = useRef<HTMLElement>(null);
+  const dashboardLinkRef = useRef<HTMLElement>(null);
+  useEffect(() => { document.title = appgroupLabel(); }, []);
+  useEffect(() => {
+    const handler = () => setAuthError(true);
+    window.addEventListener('auth-error', handler);
+    return () => window.removeEventListener('auth-error', handler);
+  }, []);
+
+  // Mobil startet der Drawer eingeklappt. Das collapsed-Attribut wird
+  // imperativ gesetzt (nicht als JSX-Prop), weil die Header-Bar es beim
+  // Toggle selbst setzt/entfernt — React darf es nicht zurückerobern.
+  useEffect(() => {
+    if (drawerRef.current && window.matchMedia('(max-width: 767.98px)').matches) {
+      drawerRef.current.setAttribute('collapsed', '');
+    }
+  }, []);
+
+  // Der Dashboard-Eintrag zeigt per App-Parameter auf genau diese Seite —
+  // statt sie neu zu laden (leave-page + location.assign), fangen wir das
+  // cancelbare Event ab und wechseln SPA-intern auf die Übersicht.
+  useEffect(() => {
+    const el = dashboardLinkRef.current;
+    if (!el) return;
+    const handler = (e: Event) => {
+      e.preventDefault();
+      navigate('/');
+      if (window.matchMedia('(max-width: 767.98px)').matches) {
+        el.closest('la-drawer')?.setAttribute('collapsed', '');
+      }
+    };
+    el.addEventListener('dashboard-link:action-request', handler);
+    return () => el.removeEventListener('dashboard-link:action-request', handler);
+  }, [navigate]);
+
+  // Aktiv-Zustand des Dashboard-Eintrags: la-dashboard-link-widget kennt
+  // (anders als la-app-group-nav-widget) kein here-Flag — Widget-Lücke.
+  // Wir spiegeln die here-Optik der Nachbarliste über ein zustandsabhängiges
+  // Stylesheet im offenen Shadow DOM. Interval-Fallback, weil der Loader
+  // asynchron lädt und das Shadow Root beim ersten Render fehlen kann.
+  const onDashboard = location.pathname === '/';
+  useEffect(() => {
+    const apply = () => {
+      const sr = dashboardLinkRef.current?.shadowRoot;
+      if (!sr) return false;
+      let style = sr.querySelector('style[data-here]');
+      if (!style) {
+        style = document.createElement('style');
+        style.setAttribute('data-here', '');
+        sr.appendChild(style);
+      }
+      // #d24601 = text-action-orange-dark der Widget-Library (here-Optik)
+      style.textContent = onDashboard
+        ? 'a { color: #d24601 !important; font-weight: 500; cursor: default; }'
+        : '';
+      return true;
+    };
+    if (apply()) return;
+    const timer = window.setInterval(() => { if (apply()) window.clearInterval(timer); }, 250);
+    return () => window.clearInterval(timer);
+  }, [onDashboard]);
+
+  return (
+    // Der body ist das App-Frame-Grid (Vorgabe Widget-Team, s. index.css):
+    // top/left/center-Areas. #root und dieser Wrapper sind display:contents,
+    // damit Header, Drawer und Content direkte Grid-Items werden. Die
+    // Area-Zuordnung von Header/Drawer liegt in index.css.
+    <div className="contents">
+      {!IS_EMBED && (
+        <la-header-bar-widget title={appgroupLabel()} app-id={APP_ID}>
+          {/* app-id auch am Menü selbst: erst mit eigenem App-Kontext zeigt
+              es die Einstellungs-Sektion (Benutzerverwaltung, Datenansicht,
+              Klar KI, App kopieren, Anleitung, Struktur). */}
+          <la-apps-menu-widget slot="widgets" app-id={APP_ID} />
+          <la-profile-menu-widget slot="widgets" />
+        </la-header-bar-widget>
+      )}
+
+      {/* Overlay-Widgets, die Header (Contact) und Profil-Menü (Profil
+          bearbeiten / Sicherheit) per document.querySelector suchen und über
+          das open-Attribut öffnen — ohne diese Elemente verpuffen die Klicks
+          stumm. Bewusst NICHT in den Header geslottet: als Geschwister bleiben
+          ihre Modals außerhalb des Header-Stacking-Contexts (z-Leiste). */}
+      {!IS_EMBED && (
+        <>
+          <la-feedback-form-widget />
+          <la-user-profile-widget />
+          <la-security-widget />
+          {/* „Aktuelle App kopieren" im Apps-Menü sucht dieses Overlay per
+              querySelector; la-gua-widget (Benutzerverwaltung) erzeugt das
+              Menü dagegen selbst. */}
+          <la-app-group-copy-widget data-grp-id={APPGROUP_ID} />
+        </>
+      )}
+
+      {/* Drawer = Grid-Area "left" (Zuordnung in index.css): In-Flow-Spalte,
+          die den Content selbst verdrängt; eingeklappt ein schmaler Streifen
+          mit Hover-Peek. Mobil ein Fixed-Overlay (verlässt das Grid). */}
+      {!IS_EMBED && (
+        <la-drawer ref={drawerRef}>
+          {/* Darstellung-Umschalter — identisch zur Datenverwaltung: der
+              Dashboard-Eintrag (la-dashboard-link-widget) und die App-Liste
+              der Gruppe (la-app-group-nav-widget → /gateway-Listenseiten). */}
+          <la-nav-section type="secondary" label={t('display_section')}>
+            <la-dashboard-link-widget ref={dashboardLinkRef} app-id={APP_ID} />
+            {/* dense = kleinere Unterpunkt-Schrift (setzt --la-nav-text-size
+                im Sektions-Shadow) — exakt wie die Datenverwaltung im Gateway. */}
+            <la-nav-section type="primary" label={t('data_management')} icon="IconMenu2" dense="">
+              <la-app-group-nav-widget group-id={APPGROUP_ID} />
+            </la-nav-section>
+          </la-nav-section>
+
+          {/* Abläufe — a section like the platform's own lists: one row per
+              flow, the gear row 'Abläufe verwalten' last. Creating, changing
+              and removing flows happens on that page, as 'Seiten verwalten'
+              does for public pages. */}
+          <la-nav-section type="secondary" label={t('intents_heading')}>
+            <IntentsNav />
+          </la-nav-section>
+
+          {/* Aktionen and Dateien — the platform's own widgets, as in the UL4
+              sidebar: la-actions-widget lists the app group's actions from the
+              actions-agent (row = run, code and description buttons, the last
+              row 'Alle Aktionen' opens the full list); la-action-files-widget
+              lists files those actions produced and hides itself — section
+              included — while there are none. Below the widget one more row,
+              'Werkzeuge' (ActionsSidebar), opens the assistant's drawer
+              (<la-klar-assistant actions-open>) — the only place with run,
+              files, triggers, last run, versions and chat per action; the
+              widget alone had lost that entry point in 0.0.386 (0.0.407).
+              New actions are created in the assistant's chat. */}
+          <la-nav-section type="secondary" label={t('actions_section')}>
+            <la-actions-widget group-id={APPGROUP_ID} />
+            <ActionsSidebar />
+          </la-nav-section>
+          <la-nav-section type="secondary" label={t('files_section')}>
+            <la-action-files-widget group-id={APPGROUP_ID} />
+          </la-nav-section>
+
+          {/* Öffentliche Seiten — the platform's own widget, the very element
+              the UL4 template's sidebar renders: it reads this dashboard's
+              public-pages.json, lists every published page (globe icon, opens
+              in a new tab) and ends with the gear row 'Seiten verwalten' →
+              #/verwaltung/oeffentliche-seiten. */}
+          <la-nav-section type="secondary" label={t('ppn_heading')}>
+            <la-public-pages-widget group-id={APPGROUP_ID} />
+          </la-nav-section>
+
+          {/* Sticky Footer, ganz unten: die Version als Meta-Zeile (kein
+              Plattform-Gegenstück; Klar Lab und die Entwickler/Beta-Toggles
+              stecken im Versions-Panel), darunter die dünne Rechtszeile
+              (Figma-Muster). Relative Pfade, damit die Plattform-Seiten auf
+              jedem Host stimmen. */}
+          <div slot="footer" className="border-t border-sidebar-border">
+            <div className="px-2 pt-2">
+              <VersionCheck />
+            </div>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 py-3 text-sm font-medium text-muted-foreground">
+              <a href="/impressum.htm" className="hover:text-foreground transition-colors">{t('legal_imprint')}</a>
+              <a href="/datenschutz.htm" className="hover:text-foreground transition-colors">{t('legal_privacy')}</a>
+              <a href="/apps.htm" className="hover:text-foreground transition-colors">LivingApps</a>
+            </div>
+          </div>
+        </la-drawer>
+      )}
+
+      {/* center = eigener Scroll-Container (min-h-0 + overflow-y-auto, wie
+          <main> auf den Plattform-Seiten); der Drawer links bleibt stehen. */}
+      <div className="[grid-area:center] min-w-0 min-h-0 overflow-y-auto">
+        <main className={`max-w-screen-2xl ${IS_EMBED ? "p-2 lg:p-4" : "p-6 lg:p-8"}`}>
+          {authError ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-destructive/10 flex items-center justify-center">
+                <IconAlertCircle size={22} className="text-destructive" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-semibold text-foreground mb-1">{t('auth_error_title')}</h3>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => {
+                window.location.href = `${window.location.origin}/login.htm?cugCoUrl=${encodeURIComponent(window.location.href)}`;
+              }}>{t('auth_login_button')}</Button>
+            </div>
+          ) : (
+            <>
+              {location.pathname === '/' && <PlanNotice />}
+              <Outlet />
+            </>
+          )}
+        </main>
+      </div>
+
+      {/* The assistant element (<la-klar-assistant>) mounts in App.tsx,
+          OUTSIDE LocaleGate — its keyed remounts must not tear the element
+          down mid-chat. */}
+    </div>
+  );
+}
+
+```
+
+## src/hooks/useDashboardData.ts
+```
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import type { Qualifikationsart, Personentyp, Person, QualifikationEinerPerson, BetreutePerson, Diagnose, Medikationsplan, MassnahmePflegeplan, Besuch, Ereignisprotokoll, Betreuungszuordnung, Dokumentation, AnhangZurDokumentation, KiExtrakt, Aufgabe } from '@/types/app';
+import { LivingAppsService } from '@/services/livingAppsService';
+import { t } from '@/i18n';
+
+/** Dashboard data + the OPTIMISTIC-WRITE API.
+ *
+ *  The per-entity setters (`set<Entity>`) are exported for exactly one job:
+ *  optimistic updates on drag writes (onEventDrop / onEventResize /
+ *  onCardMove). Call the setter FIRST — the bar/card lands instantly — then
+ *  fire the PATCH in the background and call `fetchAll()` ONLY in the catch.
+ *  Never await the PATCH before updating state (the UI freezes for the full
+ *  round-trip on every drag) and never refetch after a successful write.
+ *  There is no other mechanism (no `__optimistic`, no `mutate`).
+ */
+/** Entities this hook can load — the same keys the journey layer uses. */
+export type DashboardEntity = 'qualifikationsart' | 'personentyp' | 'person' | 'qualifikation_einer_person' | 'betreute_person' | 'diagnose' | 'medikationsplan' | 'massnahme_(pflegeplan)' | 'besuch' | 'ereignisprotokoll' | 'betreuungszuordnung' | 'dokumentation' | 'anhang_zur_dokumentation' | 'ki_extrakt' | 'aufgabe';
+
+/** Silent re-read interval from the plan (generated): visitors or tools add records. */
+const LIVE_MS = 0;
+/** The lists a tick re-reads — ONE request each; the rest waits for an event or the tab's return. */
+const LIVE_ENTITIES: string[] = [];
+/** Marks a list the tick skipped: its rows and its forbidden state stay as they are. */
+const SKIP = Symbol('skip');
+
+export interface DashboardDataOptions {
+  /** Entities this page does NOT need (picked through useRecordSearch instead).
+   *  Every flow page mounts this hook on its own route, so without `omit` a
+   *  page that searches 3.000 guests server-side would still pull all 3.000
+   *  through the side door. */
+  omit?: DashboardEntity[];
+}
+
+export function useDashboardData(options: DashboardDataOptions = {}) {
+  // A string key, not the array: an inline `omit={['gaeste']}` is a new array
+  // on every render and would restart the fetch forever.
+  const omitKey = (options.omit ?? []).slice().sort().join('|');
+  const [qualifikationsart, setQualifikationsart] = useState<Qualifikationsart[]>([]);
+  const [personentyp, setPersonentyp] = useState<Personentyp[]>([]);
+  const [person, setPerson] = useState<Person[]>([]);
+  const [qualifikationEinerPerson, setQualifikationEinerPerson] = useState<QualifikationEinerPerson[]>([]);
+  const [betreutePerson, setBetreutePerson] = useState<BetreutePerson[]>([]);
+  const [diagnose, setDiagnose] = useState<Diagnose[]>([]);
+  const [medikationsplan, setMedikationsplan] = useState<Medikationsplan[]>([]);
+  const [massnahmePflegeplan, setMassnahmePflegeplan] = useState<MassnahmePflegeplan[]>([]);
+  const [besuch, setBesuch] = useState<Besuch[]>([]);
+  const [ereignisprotokoll, setEreignisprotokoll] = useState<Ereignisprotokoll[]>([]);
+  const [betreuungszuordnung, setBetreuungszuordnung] = useState<Betreuungszuordnung[]>([]);
+  const [dokumentation, setDokumentation] = useState<Dokumentation[]>([]);
+  const [anhangZurDokumentation, setAnhangZurDokumentation] = useState<AnhangZurDokumentation[]>([]);
+  const [kiExtrakt, setKiExtrakt] = useState<KiExtrakt[]>([]);
+  const [aufgabe, setAufgabe] = useState<Aufgabe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  /** Lists the signed-in user may not read (403 on the platform). They load as
+   *  empty and the rest of the page loads normally — one forbidden list used to
+   *  empty the whole dashboard (05.10.2026). Hide a block whose list is here. */
+  const [forbidden, setForbidden] = useState<DashboardEntity[]>([]);
+
+  // Every list on its own: a 403 is „not yours“, any other failure is an error.
+  const forbiddenRef = useRef<DashboardEntity[]>([]);
+  const settle = useCallback((settled: PromiseSettledResult<unknown>[]) => {
+    const denied: DashboardEntity[] = [];
+    let failure: unknown = null;
+    // null = this list failed for another reason, or the tick skipped it: its current data stays
+    const pick = <T,>(i: number, key: DashboardEntity): T[] | null => {
+      const s = settled[i];
+      if (s.status === 'fulfilled') return s.value as T[];
+      if (s.reason === SKIP) { if (forbiddenRef.current.includes(key)) denied.push(key); return null; }
+      if ((s.reason as { status?: number } | null)?.status === 403) { denied.push(key); return []; }
+      failure = failure ?? s.reason;
+      return null;
+    };
+    { const rows = pick<Qualifikationsart>(0, 'qualifikationsart'); if (rows) setQualifikationsart(rows); }
+    { const rows = pick<Personentyp>(1, 'personentyp'); if (rows) setPersonentyp(rows); }
+    { const rows = pick<Person>(2, 'person'); if (rows) setPerson(rows); }
+    { const rows = pick<QualifikationEinerPerson>(3, 'qualifikation_einer_person'); if (rows) setQualifikationEinerPerson(rows); }
+    { const rows = pick<BetreutePerson>(4, 'betreute_person'); if (rows) setBetreutePerson(rows); }
+    { const rows = pick<Diagnose>(5, 'diagnose'); if (rows) setDiagnose(rows); }
+    { const rows = pick<Medikationsplan>(6, 'medikationsplan'); if (rows) setMedikationsplan(rows); }
+    { const rows = pick<MassnahmePflegeplan>(7, 'massnahme_(pflegeplan)'); if (rows) setMassnahmePflegeplan(rows); }
+    { const rows = pick<Besuch>(8, 'besuch'); if (rows) setBesuch(rows); }
+    { const rows = pick<Ereignisprotokoll>(9, 'ereignisprotokoll'); if (rows) setEreignisprotokoll(rows); }
+    { const rows = pick<Betreuungszuordnung>(10, 'betreuungszuordnung'); if (rows) setBetreuungszuordnung(rows); }
+    { const rows = pick<Dokumentation>(11, 'dokumentation'); if (rows) setDokumentation(rows); }
+    { const rows = pick<AnhangZurDokumentation>(12, 'anhang_zur_dokumentation'); if (rows) setAnhangZurDokumentation(rows); }
+    { const rows = pick<KiExtrakt>(13, 'ki_extrakt'); if (rows) setKiExtrakt(rows); }
+    { const rows = pick<Aufgabe>(14, 'aufgabe'); if (rows) setAufgabe(rows); }
+    forbiddenRef.current = denied;
+    setForbidden(prev => (prev.join('|') === denied.join('|') ? prev : denied));
+    return failure;
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    setError(null);
+    const omit = new Set(omitKey ? omitKey.split('|') : []);
+    try {
+      const failure = settle(await Promise.allSettled([
+        omit.has('qualifikationsart') ? Promise.resolve([] as Qualifikationsart[]) : LivingAppsService.getQualifikationsart(),
+        omit.has('personentyp') ? Promise.resolve([] as Personentyp[]) : LivingAppsService.getPersonentyp(),
+        omit.has('person') ? Promise.resolve([] as Person[]) : LivingAppsService.getPerson(),
+        omit.has('qualifikation_einer_person') ? Promise.resolve([] as QualifikationEinerPerson[]) : LivingAppsService.getQualifikationEinerPerson(),
+        omit.has('betreute_person') ? Promise.resolve([] as BetreutePerson[]) : LivingAppsService.getBetreutePerson(),
+        omit.has('diagnose') ? Promise.resolve([] as Diagnose[]) : LivingAppsService.getDiagnose(),
+        omit.has('medikationsplan') ? Promise.resolve([] as Medikationsplan[]) : LivingAppsService.getMedikationsplan(),
+        omit.has('massnahme_(pflegeplan)') ? Promise.resolve([] as MassnahmePflegeplan[]) : LivingAppsService.getMassnahmePflegeplan(),
+        omit.has('besuch') ? Promise.resolve([] as Besuch[]) : LivingAppsService.getBesuch(),
+        omit.has('ereignisprotokoll') ? Promise.resolve([] as Ereignisprotokoll[]) : LivingAppsService.getEreignisprotokoll(),
+        omit.has('betreuungszuordnung') ? Promise.resolve([] as Betreuungszuordnung[]) : LivingAppsService.getBetreuungszuordnung(),
+        omit.has('dokumentation') ? Promise.resolve([] as Dokumentation[]) : LivingAppsService.getDokumentation(),
+        omit.has('anhang_zur_dokumentation') ? Promise.resolve([] as AnhangZurDokumentation[]) : LivingAppsService.getAnhangZurDokumentation(),
+        omit.has('ki_extrakt') ? Promise.resolve([] as KiExtrakt[]) : LivingAppsService.getKiExtrakt(),
+        omit.has('aufgabe') ? Promise.resolve([] as Aufgabe[]) : LivingAppsService.getAufgabe(),
+      ]));
+      if (failure) throw failure;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(t('data_load_failed')));
+    } finally {
+      setLoading(false);
+    }
+  }, [omitKey, settle]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Silent background refresh (no loading state change → no flicker)
+  useEffect(() => {
+    const omit = new Set(omitKey ? omitKey.split('|') : []);
+    async function silentRefresh() {
+      try {
+        // a failed list keeps its stale data out of the way: settle() only
+        // replaces what loaded or was refused
+        settle(await Promise.allSettled([
+          omit.has('qualifikationsart') ? Promise.resolve([] as Qualifikationsart[]) : LivingAppsService.getQualifikationsart(),
+          omit.has('personentyp') ? Promise.resolve([] as Personentyp[]) : LivingAppsService.getPersonentyp(),
+          omit.has('person') ? Promise.resolve([] as Person[]) : LivingAppsService.getPerson(),
+          omit.has('qualifikation_einer_person') ? Promise.resolve([] as QualifikationEinerPerson[]) : LivingAppsService.getQualifikationEinerPerson(),
+          omit.has('betreute_person') ? Promise.resolve([] as BetreutePerson[]) : LivingAppsService.getBetreutePerson(),
+          omit.has('diagnose') ? Promise.resolve([] as Diagnose[]) : LivingAppsService.getDiagnose(),
+          omit.has('medikationsplan') ? Promise.resolve([] as Medikationsplan[]) : LivingAppsService.getMedikationsplan(),
+          omit.has('massnahme_(pflegeplan)') ? Promise.resolve([] as MassnahmePflegeplan[]) : LivingAppsService.getMassnahmePflegeplan(),
+          omit.has('besuch') ? Promise.resolve([] as Besuch[]) : LivingAppsService.getBesuch(),
+          omit.has('ereignisprotokoll') ? Promise.resolve([] as Ereignisprotokoll[]) : LivingAppsService.getEreignisprotokoll(),
+          omit.has('betreuungszuordnung') ? Promise.resolve([] as Betreuungszuordnung[]) : LivingAppsService.getBetreuungszuordnung(),
+          omit.has('dokumentation') ? Promise.resolve([] as Dokumentation[]) : LivingAppsService.getDokumentation(),
+          omit.has('anhang_zur_dokumentation') ? Promise.resolve([] as AnhangZurDokumentation[]) : LivingAppsService.getAnhangZurDokumentation(),
+          omit.has('ki_extrakt') ? Promise.resolve([] as KiExtrakt[]) : LivingAppsService.getKiExtrakt(),
+          omit.has('aufgabe') ? Promise.resolve([] as Aufgabe[]) : LivingAppsService.getAufgabe(),
+        ]));
+      } catch {
+        // silently ignore — stale data is better than no data
+      }
+    }
+    function handleRefresh() { void silentRefresh(); }
+    // assistant:data-changed comes from the assistant (<la-klar-assistant>)
+    // after every mutation. The element additionally fires the legacy
+    // dashboard-refresh event for OLD deployed bundles — do NOT subscribe to
+    // both here, or every mutation fetches twice.
+    window.addEventListener('assistant:data-changed', handleRefresh);
+    // Records that arrive without the team (a visitor on a public page, a
+    // tool) show up by themselves: a silent re-read every LIVE_MS while the
+    // tab is visible, once on return (S-1/W-19, acceptance 4 — the moderation
+    // saw new contributions only after a reload). 0 = events only.
+    // the tick: only LIVE_ENTITIES, one request each
+    const only = new Set(LIVE_ENTITIES);
+    async function tick() {
+      try {
+        settle(await Promise.allSettled([
+          !only.has('qualifikationsart') ? Promise.reject(SKIP) : omit.has('qualifikationsart') ? Promise.resolve([] as Qualifikationsart[]) : LivingAppsService.getQualifikationsart(),
+          !only.has('personentyp') ? Promise.reject(SKIP) : omit.has('personentyp') ? Promise.resolve([] as Personentyp[]) : LivingAppsService.getPersonentyp(),
+          !only.has('person') ? Promise.reject(SKIP) : omit.has('person') ? Promise.resolve([] as Person[]) : LivingAppsService.getPerson(),
+          !only.has('qualifikation_einer_person') ? Promise.reject(SKIP) : omit.has('qualifikation_einer_person') ? Promise.resolve([] as QualifikationEinerPerson[]) : LivingAppsService.getQualifikationEinerPerson(),
+          !only.has('betreute_person') ? Promise.reject(SKIP) : omit.has('betreute_person') ? Promise.resolve([] as BetreutePerson[]) : LivingAppsService.getBetreutePerson(),
+          !only.has('diagnose') ? Promise.reject(SKIP) : omit.has('diagnose') ? Promise.resolve([] as Diagnose[]) : LivingAppsService.getDiagnose(),
+          !only.has('medikationsplan') ? Promise.reject(SKIP) : omit.has('medikationsplan') ? Promise.resolve([] as Medikationsplan[]) : LivingAppsService.getMedikationsplan(),
+          !only.has('massnahme_(pflegeplan)') ? Promise.reject(SKIP) : omit.has('massnahme_(pflegeplan)') ? Promise.resolve([] as MassnahmePflegeplan[]) : LivingAppsService.getMassnahmePflegeplan(),
+          !only.has('besuch') ? Promise.reject(SKIP) : omit.has('besuch') ? Promise.resolve([] as Besuch[]) : LivingAppsService.getBesuch(),
+          !only.has('ereignisprotokoll') ? Promise.reject(SKIP) : omit.has('ereignisprotokoll') ? Promise.resolve([] as Ereignisprotokoll[]) : LivingAppsService.getEreignisprotokoll(),
+          !only.has('betreuungszuordnung') ? Promise.reject(SKIP) : omit.has('betreuungszuordnung') ? Promise.resolve([] as Betreuungszuordnung[]) : LivingAppsService.getBetreuungszuordnung(),
+          !only.has('dokumentation') ? Promise.reject(SKIP) : omit.has('dokumentation') ? Promise.resolve([] as Dokumentation[]) : LivingAppsService.getDokumentation(),
+          !only.has('anhang_zur_dokumentation') ? Promise.reject(SKIP) : omit.has('anhang_zur_dokumentation') ? Promise.resolve([] as AnhangZurDokumentation[]) : LivingAppsService.getAnhangZurDokumentation(),
+          !only.has('ki_extrakt') ? Promise.reject(SKIP) : omit.has('ki_extrakt') ? Promise.resolve([] as KiExtrakt[]) : LivingAppsService.getKiExtrakt(),
+          !only.has('aufgabe') ? Promise.reject(SKIP) : omit.has('aufgabe') ? Promise.resolve([] as Aufgabe[]) : LivingAppsService.getAufgabe(),
+        ]));
+      } catch {
+        // silently ignore — stale data is better than no data
+      }
+    }
+    const timer = LIVE_MS > 0 && only.size > 0 ? window.setInterval(() => { if (!document.hidden) void tick(); }, LIVE_MS) : null;
+    const onVisible = () => { if (!document.hidden && LIVE_MS > 0) void silentRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('assistant:data-changed', handleRefresh);
+      if (timer !== null) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [omitKey, settle]);
+
+  const qualifikationsartMap = useMemo(() => {
+    const m = new Map<string, Qualifikationsart>();
+    qualifikationsart.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [qualifikationsart]);
+
+  const personentypMap = useMemo(() => {
+    const m = new Map<string, Personentyp>();
+    personentyp.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [personentyp]);
+
+  const personMap = useMemo(() => {
+    const m = new Map<string, Person>();
+    person.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [person]);
+
+  const betreutePersonMap = useMemo(() => {
+    const m = new Map<string, BetreutePerson>();
+    betreutePerson.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [betreutePerson]);
+
+  const massnahmePflegeplanMap = useMemo(() => {
+    const m = new Map<string, MassnahmePflegeplan>();
+    massnahmePflegeplan.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [massnahmePflegeplan]);
+
+  const besuchMap = useMemo(() => {
+    const m = new Map<string, Besuch>();
+    besuch.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [besuch]);
+
+  const betreuungszuordnungMap = useMemo(() => {
+    const m = new Map<string, Betreuungszuordnung>();
+    betreuungszuordnung.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [betreuungszuordnung]);
+
+  const dokumentationMap = useMemo(() => {
+    const m = new Map<string, Dokumentation>();
+    dokumentation.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [dokumentation]);
+
+  const kiExtraktMap = useMemo(() => {
+    const m = new Map<string, KiExtrakt>();
+    kiExtrakt.forEach(r => m.set(r.record_id, r));
+    return m;
+  }, [kiExtrakt]);
+
+  return { qualifikationsart, setQualifikationsart, personentyp, setPersonentyp, person, setPerson, qualifikationEinerPerson, setQualifikationEinerPerson, betreutePerson, setBetreutePerson, diagnose, setDiagnose, medikationsplan, setMedikationsplan, massnahmePflegeplan, setMassnahmePflegeplan, besuch, setBesuch, ereignisprotokoll, setEreignisprotokoll, betreuungszuordnung, setBetreuungszuordnung, dokumentation, setDokumentation, anhangZurDokumentation, setAnhangZurDokumentation, kiExtrakt, setKiExtrakt, aufgabe, setAufgabe, loading, error, fetchAll, forbidden, qualifikationsartMap, personentypMap, personMap, betreutePersonMap, massnahmePflegeplanMap, besuchMap, betreuungszuordnungMap, dokumentationMap, kiExtraktMap };
+}
+
+/** The hook's return — the `data` prop of DashboardOverview in the Ready-Wrapper form. */
+export type DashboardData = ReturnType<typeof useDashboardData>;
+```
+
+## src/lib/enrich.ts
+```
+import type { EnrichedAnhangZurDokumentation, EnrichedAufgabe, EnrichedBesuch, EnrichedBetreutePerson, EnrichedBetreuungszuordnung, EnrichedDiagnose, EnrichedDokumentation, EnrichedEreignisprotokoll, EnrichedKiExtrakt, EnrichedMassnahmePflegeplan, EnrichedMedikationsplan, EnrichedPerson, EnrichedPersonentyp, EnrichedQualifikationEinerPerson } from '@/types/enriched';
+import type { AnhangZurDokumentation, Aufgabe, Besuch, BetreutePerson, Betreuungszuordnung, Diagnose, Dokumentation, Ereignisprotokoll, KiExtrakt, MassnahmePflegeplan, Medikationsplan, Person, Personentyp, QualifikationEinerPerson, Qualifikationsart } from '@/types/app';
+import { extractRecordId } from '@/services/livingAppsService';
+import { displayPart } from '@/lib/journey/rules';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveDisplay(url: unknown, map: Map<string, any>, ...fields: string[]): string {
+  if (!url) return '';
+  const id = extractRecordId(url);
+  if (!id) return '';
+  const r = map.get(id);
+  if (!r) return '';
+  return fields.map(f => displayPart(r.fields[f])).filter(Boolean).join(' ').trim();
+}
+
+interface PersonentypMaps {
+  qualifikationsartMap: Map<string, Qualifikationsart>;
+}
+
+export function enrichPersonentyp(
+  personentyp: Personentyp[],
+  maps: PersonentypMaps
+): EnrichedPersonentyp[] {
+  return personentyp.map(r => ({
+    ...r,
+    erforderliche_qualifikationsartenName: resolveDisplay(r.fields.erforderliche_qualifikationsarten, maps.qualifikationsartMap, 'bezeichnung'),
+  }));
+}
+
+interface PersonMaps {
+  personentypMap: Map<string, Personentyp>;
+}
+
+export function enrichPerson(
+  person: Person[],
+  maps: PersonMaps
+): EnrichedPerson[] {
+  return person.map(r => ({
+    ...r,
+    personentypName: resolveDisplay(r.fields.personentyp, maps.personentypMap, 'bezeichnung'),
+  }));
+}
+
+interface QualifikationEinerPersonMaps {
+  personMap: Map<string, Person>;
+  qualifikationsartMap: Map<string, Qualifikationsart>;
+}
+
+export function enrichQualifikationEinerPerson(
+  qualifikationEinerPerson: QualifikationEinerPerson[],
+  maps: QualifikationEinerPersonMaps
+): EnrichedQualifikationEinerPerson[] {
+  return qualifikationEinerPerson.map(r => ({
+    ...r,
+    personName: resolveDisplay(r.fields.person, maps.personMap, 'vorname', 'nachname'),
+    qualifikationsartName: resolveDisplay(r.fields.qualifikationsart, maps.qualifikationsartMap, 'bezeichnung'),
+    geprueft_vonName: resolveDisplay(r.fields.geprueft_von, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface BetreutePersonMaps {
+  personMap: Map<string, Person>;
+}
+
+export function enrichBetreutePerson(
+  betreutePerson: BetreutePerson[],
+  maps: BetreutePersonMaps
+): EnrichedBetreutePerson[] {
+  return betreutePerson.map(r => ({
+    ...r,
+    hausarztName: resolveDisplay(r.fields.hausarzt, maps.personMap, 'vorname', 'nachname'),
+    ansprechpersonName: resolveDisplay(r.fields.ansprechperson, maps.personMap, 'vorname', 'nachname'),
+    ersatz_ansprechpersonName: resolveDisplay(r.fields.ersatz_ansprechperson, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface DiagnoseMaps {
+  betreutePersonMap: Map<string, BetreutePerson>;
+  personMap: Map<string, Person>;
+}
+
+export function enrichDiagnose(
+  diagnose: Diagnose[],
+  maps: DiagnoseMaps
+): EnrichedDiagnose[] {
+  return diagnose.map(r => ({
+    ...r,
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    festgestellt_vonName: resolveDisplay(r.fields.festgestellt_von, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface MedikationsplanMaps {
+  betreutePersonMap: Map<string, BetreutePerson>;
+  personMap: Map<string, Person>;
+}
+
+export function enrichMedikationsplan(
+  medikationsplan: Medikationsplan[],
+  maps: MedikationsplanMaps
+): EnrichedMedikationsplan[] {
+  return medikationsplan.map(r => ({
+    ...r,
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    verordnet_vonName: resolveDisplay(r.fields.verordnet_von, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface MassnahmePflegeplanMaps {
+  betreutePersonMap: Map<string, BetreutePerson>;
+  qualifikationsartMap: Map<string, Qualifikationsart>;
+  personMap: Map<string, Person>;
+}
+
+export function enrichMassnahmePflegeplan(
+  massnahmePflegeplan: MassnahmePflegeplan[],
+  maps: MassnahmePflegeplanMaps
+): EnrichedMassnahmePflegeplan[] {
+  return massnahmePflegeplan.map(r => ({
+    ...r,
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    mindestqualifikationName: resolveDisplay(r.fields.mindestqualifikation, maps.qualifikationsartMap, 'bezeichnung'),
+    verordnet_vonName: resolveDisplay(r.fields.verordnet_von, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface BesuchMaps {
+  betreutePersonMap: Map<string, BetreutePerson>;
+  personMap: Map<string, Person>;
+}
+
+export function enrichBesuch(
+  besuch: Besuch[],
+  maps: BesuchMaps
+): EnrichedBesuch[] {
+  return besuch.map(r => ({
+    ...r,
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    betreuungspersonName: resolveDisplay(r.fields.betreuungsperson, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface EreignisprotokollMaps {
+  personMap: Map<string, Person>;
+  betreutePersonMap: Map<string, BetreutePerson>;
+}
+
+export function enrichEreignisprotokoll(
+  ereignisprotokoll: Ereignisprotokoll[],
+  maps: EreignisprotokollMaps
+): EnrichedEreignisprotokoll[] {
+  return ereignisprotokoll.map(r => ({
+    ...r,
+    akteurName: resolveDisplay(r.fields.akteur, maps.personMap, 'vorname', 'nachname'),
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface BetreuungszuordnungMaps {
+  betreuungszuordnungMap: Map<string, Betreuungszuordnung>;
+  betreutePersonMap: Map<string, BetreutePerson>;
+  personMap: Map<string, Person>;
+}
+
+export function enrichBetreuungszuordnung(
+  betreuungszuordnung: Betreuungszuordnung[],
+  maps: BetreuungszuordnungMaps
+): EnrichedBetreuungszuordnung[] {
+  return betreuungszuordnung.map(r => ({
+    ...r,
+    vertretung_fuerName: resolveDisplay(r.fields.vertretung_fuer, maps.betreuungszuordnungMap, 'beauftragt_durch_organisation'),
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    betreuungspersonName: resolveDisplay(r.fields.betreuungsperson, maps.personMap, 'vorname', 'nachname'),
+    beauftragt_durchName: resolveDisplay(r.fields.beauftragt_durch, maps.personMap, 'vorname', 'nachname'),
+  }));
+}
+
+interface DokumentationMaps {
+  besuchMap: Map<string, Besuch>;
+  betreutePersonMap: Map<string, BetreutePerson>;
+  personMap: Map<string, Person>;
+  dokumentationMap: Map<string, Dokumentation>;
+}
+
+export function enrichDokumentation(
+  dokumentation: Dokumentation[],
+  maps: DokumentationMaps
+): EnrichedDokumentation[] {
+  return dokumentation.map(r => ({
+    ...r,
+    besuchName: resolveDisplay(r.fields.besuch, maps.besuchMap, 'geraet'),
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    autorName: resolveDisplay(r.fields.autor, maps.personMap, 'vorname', 'nachname'),
+    ergaenzung_zuName: resolveDisplay(r.fields.ergaenzung_zu, maps.dokumentationMap, 'text'),
+  }));
+}
+
+interface AnhangZurDokumentationMaps {
+  personMap: Map<string, Person>;
+  dokumentationMap: Map<string, Dokumentation>;
+}
+
+export function enrichAnhangZurDokumentation(
+  anhangZurDokumentation: AnhangZurDokumentation[],
+  maps: AnhangZurDokumentationMaps
+): EnrichedAnhangZurDokumentation[] {
+  return anhangZurDokumentation.map(r => ({
+    ...r,
+    aufgenommen_vonName: resolveDisplay(r.fields.aufgenommen_von, maps.personMap, 'vorname', 'nachname'),
+    dokumentationName: resolveDisplay(r.fields.dokumentation, maps.dokumentationMap, 'text'),
+  }));
+}
+
+interface KiExtraktMaps {
+  dokumentationMap: Map<string, Dokumentation>;
+}
+
+export function enrichKiExtrakt(
+  kiExtrakt: KiExtrakt[],
+  maps: KiExtraktMaps
+): EnrichedKiExtrakt[] {
+  return kiExtrakt.map(r => ({
+    ...r,
+    dokumentationName: resolveDisplay(r.fields.dokumentation, maps.dokumentationMap, 'text'),
+  }));
+}
+
+interface AufgabeMaps {
+  betreutePersonMap: Map<string, BetreutePerson>;
+  massnahmePflegeplanMap: Map<string, MassnahmePflegeplan>;
+  personMap: Map<string, Person>;
+  qualifikationsartMap: Map<string, Qualifikationsart>;
+  kiExtraktMap: Map<string, KiExtrakt>;
+}
+
+export function enrichAufgabe(
+  aufgabe: Aufgabe[],
+  maps: AufgabeMaps
+): EnrichedAufgabe[] {
+  return aufgabe.map(r => ({
+    ...r,
+    betreute_personName: resolveDisplay(r.fields.betreute_person, maps.betreutePersonMap, 'vorname', 'nachname'),
+    quelle_massnahmeName: resolveDisplay(r.fields.quelle_massnahme, maps.massnahmePflegeplanMap, 'bezeichnung'),
+    zustaendigName: resolveDisplay(r.fields.zustaendig, maps.personMap, 'vorname', 'nachname'),
+    mindestqualifikationName: resolveDisplay(r.fields.mindestqualifikation, maps.qualifikationsartMap, 'bezeichnung'),
+    wartet_auf_personName: resolveDisplay(r.fields.wartet_auf_person, maps.personMap, 'vorname', 'nachname'),
+    vorgeschlagen_vonName: resolveDisplay(r.fields.vorgeschlagen_von, maps.personMap, 'vorname', 'nachname'),
+    aktiviert_vonName: resolveDisplay(r.fields.aktiviert_von, maps.personMap, 'vorname', 'nachname'),
+    zugeordnet_vonName: resolveDisplay(r.fields.zugeordnet_von, maps.personMap, 'vorname', 'nachname'),
+    begonnen_vonName: resolveDisplay(r.fields.begonnen_von, maps.personMap, 'vorname', 'nachname'),
+    erledigt_vonName: resolveDisplay(r.fields.erledigt_von, maps.personMap, 'vorname', 'nachname'),
+    verworfen_vonName: resolveDisplay(r.fields.verworfen_von, maps.personMap, 'vorname', 'nachname'),
+    quelle_ki_extraktName: resolveDisplay(r.fields.quelle_ki_extrakt, maps.kiExtraktMap, 'inhalt'),
+  }));
+}
+
+```
+
+## src/lib/formatters.ts
+```
+import { format, parseISO } from 'date-fns';
+import { CURRENCY, dateFnsLocale, dateFormat, dateTimeFormat, localeTag } from '@/i18n';
+
+// Pattern, month/weekday names and number grouping all follow the ACTIVE
+// locale — read inside the functions, never hoisted, so a language switch
+// takes effect without a rebuild. The currency itself is a property of the
+// data and stays fixed at the build-time choice (CURRENCY).
+export function formatDate(s: string | undefined) {
+  if (!s) return '—';
+  try { return format(parseISO(s), dateFormat(), { locale: dateFnsLocale() }); } catch { return s; }
+}
+
+export function formatDateTime(s: string | undefined) {
+  if (!s) return '—';
+  // a day without a time (stored date-only, or midnight) reads as the day — „6. Nov. 2026“, never „… 00:00“
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s) || /T00:00(:00)?(\.0+)?Z?$/.test(s)) return formatDate(s.slice(0, 10));
+  try { return format(parseISO(s), dateTimeFormat(), { locale: dateFnsLocale() }); } catch { return s; }
+}
+
+export function formatCurrency(v: number | undefined) {
+  if (v == null) return '—';
+  return new Intl.NumberFormat(localeTag(), { style: 'currency', currency: CURRENCY }).format(v);
+}
+
+/** Extract display label from lookup/select or lookup/radio API response */
+export function displayLookup(val: unknown, options?: {key: string, label: string}[]): string {
+  if (val == null) return '—';
+  if (typeof val === 'object' && val !== null && 'label' in val) return String((val as Record<string, unknown>).label);
+  if (options && typeof val === 'string') { const m = options.find(o => o.key === val); if (m) return m.label; }
+  return String(val);
+}
+
+/** Extract labels from multiplelookup/checkbox API response */
+export function displayMultiLookup(val: unknown, options?: {key: string, label: string}[]): string {
+  if (val == null) return '—';
+  if (Array.isArray(val)) return val.map(v => {
+    if (typeof v === 'object' && v !== null && 'label' in v) return String((v as Record<string, unknown>).label);
+    if (options && typeof v === 'string') { const m = options.find(o => o.key === v); if (m) return m.label; }
+    return String(v);
+  }).join(', ') || '—';
+  return displayLookup(val, options);
+}
+
+/** Extract key from lookup value (handles both {key,label} objects and plain strings) */
+export function lookupKey(val: unknown): string | undefined {
+  if (val == null) return undefined;
+  if (typeof val === 'object' && val !== null && 'key' in val) return String((val as Record<string, unknown>).key);
+  if (typeof val === 'string') return val;
+  return undefined;
+}
+
+/** Extract keys from multiplelookup value */
+export function lookupKeys(val: unknown): string[] {
+  if (!Array.isArray(val)) return [];
+  return val.map(v => typeof v === 'object' && v !== null && 'key' in v ? String((v as Record<string, unknown>).key) : String(v));
+}
+```

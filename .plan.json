@@ -1,0 +1,496 @@
+{
+  "version": 1,
+  "language": "de",
+  "understanding": {
+    "summary": "Gebaut wird eine Betreuungsdokumentation für ambulante Betreuung. Betreuungspersonen öffnen ihre betreute Person, starten damit einen Besuch, haken die Tagesaufgaben ab (erledigt oder nicht durchgeführt mit Grund) und speichern eine Dokumentation mit Diktat- oder Tipptext, Fotos und Anhängen. Aus dem Pflegeplan entstehen täglich die Aufgaben, aus der Dokumentation prüft eine KI Vorschläge mit wörtlicher Belegstelle, die der Mensch aktiviert, anpasst oder verwirft. Pflegedienstleitung pflegt Zuordnungen, Vertretungen und Pflegeplan; alle Vorgänge stehen im Ereignisprotokoll. Standortsuche, Hintergrundverarbeitung der Rechte und lesende Zugriffsprotokolle sind Wünsche, die hier nur teilweise baubar sind.",
+    "outside_users": [],
+    "roles": [
+      "Betreuungsperson",
+      "Pflegedienstleitung",
+      "Verwaltung",
+      "Administrator"
+    ],
+    "main_tasks": [
+      "Besuch starten und Tagesaufgaben abhaken",
+      "Dokumentation mit Diktat, Foto und Anhang speichern",
+      "KI-Vorschläge prüfen und als Aufgaben aktivieren",
+      "Betreuungszuordnungen und Vertretungen pflegen",
+      "Pflegeplan pflegen und Tagesaufgaben erzeugen",
+      "Stammdaten, Qualifikationen und Personen verwalten"
+    ],
+    "platform_roles": [
+      {
+        "persona": "Betreuungsperson",
+        "role": "standard",
+        "apps": [
+          "betreute_person",
+          "besuch",
+          "dokumentation",
+          "anhang_zur_dokumentation",
+          "aufgabe",
+          "ki_extrakt"
+        ]
+      },
+      {
+        "persona": "Pflegedienstleitung",
+        "role": "datenverarbeitung",
+        "apps": [
+          "betreute_person",
+          "betreuungszuordnung",
+          "massnahme_(pflegeplan)",
+          "aufgabe",
+          "besuch",
+          "dokumentation",
+          "diagnose",
+          "medikationsplan",
+          "ereignisprotokoll",
+          "person",
+          "qualifikation_einer_person",
+          "ki_extrakt"
+        ]
+      },
+      {
+        "persona": "Verwaltung",
+        "role": "datenverarbeitung",
+        "apps": [
+          "person",
+          "personentyp",
+          "qualifikationsart",
+          "qualifikation_einer_person",
+          "betreute_person"
+        ]
+      },
+      {
+        "persona": "Administrator",
+        "role": "administrator",
+        "apps": [
+          "personentyp",
+          "qualifikationsart",
+          "person",
+          "qualifikation_einer_person",
+          "betreute_person",
+          "diagnose",
+          "medikationsplan",
+          "massnahme_(pflegeplan)",
+          "besuch",
+          "ereignisprotokoll",
+          "betreuungszuordnung",
+          "dokumentation",
+          "anhang_zur_dokumentation",
+          "ki_extrakt",
+          "aufgabe"
+        ]
+      }
+    ],
+    "wish_kind": "spec",
+    "wish_signals": [
+      "long"
+    ]
+  },
+  "flows": [
+    {
+      "slug": "besuch-starten-und-aufgaben-abhaken",
+      "label": {
+        "de": "Besuch starten und Aufgaben abhaken",
+        "en": "Start visit and check off tasks"
+      },
+      "description": "Die Betreuungsperson öffnet eine betreute Person, der Besuch beginnt, und die heutigen Aufgaben werden erledigt oder mit Grund als nicht durchgeführt markiert.",
+      "priority": "must",
+      "writes": [
+        {
+          "entity": "besuch",
+          "op": "create",
+          "when": "always",
+          "fields": {
+            "betreute_person": "picked",
+            "betreuungsperson": "picked",
+            "beginn": "derived:now",
+            "status": "fixed:laufend",
+            "einstieg": "user",
+            "geraet": "user"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        },
+        {
+          "entity": "aufgabe",
+          "op": "update",
+          "when": "optional",
+          "fields": {
+            "status": "user",
+            "ergebnis": "user",
+            "ergebniskommentar": "user",
+            "nicht_durchgefuehrt_grund": "user",
+            "erledigt_am": "derived:now",
+            "erledigt_von": "picked"
+          },
+          "multiple": true,
+          "needs": {},
+          "defaults": []
+        }
+      ],
+      "required": [],
+      "brief": "# Flow `besuch-starten-und-aufgaben-abhaken` — Besuch starten und Aufgaben abhaken\nDie Betreuungsperson öffnet eine betreute Person, der Besuch beginnt, und die heutigen Aufgaben werden erledigt oder mit Grund als nicht durchgeführt markiert.\n\n## Your hook — import it, never rebuild what it owns\n`import { useBesuchStartenUndAufgabenAbhakenFlow } from '@/lib/journey/flows/BesuchStartenUndAufgabenAbhaken';` — generated from the Schreibliste below. It OWNS the form(s), one record search per picked field (columns and filter from the plan) and the submit plan with every fixed and derived value. You compose: `flow.forms.<entity>` for <Bound>/<Field>, `{...flow.picks.<field>.select} {...flow.pick('<field>')}` (or `flow.pickMany` for a multi pick) for <EntitySelectStep>, `flow.validateStep(n)` in StepNav.onNext, `flow.submit` + `flow.formList` for SummaryStep/SuccessStep, `flow.reset()`; what the hook does not own reads through its door `flow.port` — availability `useOccupancy(flow.port, '<entity>', { resource })`, a count `useRecordCount(flow.port, …)` — never import servicePort next to the hook. Options: `steps` (field → step), `items` (how a hit reads, per pick: betreute_person, betreuungsperson, erledigt_von), `initial`, `messages`. The hook's docblock in .lane-context.md shows the exact call. This flow CHANGES a record of `aufgabe`: `{...flow.picks.aufgabe.select} {...flow.pick('aufgabe')}` picks it, the hook prefills the form with its current values and updates THAT record — never a create step, never a list from useDashboardData. Never import servicePort, useStepForm, useJourneySubmit, useRecordSearch or useDashboardData in this page — check-intents refuses a page that uses the hook and any of them.\n\n## Steps (in this order)\n1. Betreute Person aus der Liste der eigenen aktiven Betreuten wählen\n2. Besuch beginnt mit Zeitstempel, Einstieg und Gerät\n3. Offene Tagesaufgaben der Person anzeigen\n4. Aufgabe mit einem Tipp als Erledigt setzen, Ergebnis wählen\n5. Alternativ Nicht durchgeführt mit kurzem Grund setzen\n\n## Schreibliste — the ONLY writes this flow makes (the gate compares your plan steps with this list)\n- creates `besuch`:\n    - `betreute_person`: from the record the user picks in this flow\n    - `betreuungsperson`: from the record the user picks in this flow\n    - `beginn`: derived: now() — set it in the plan step, never ask\n    - `status`: fixed value `laufend` — set it in the plan step's values, never ask\n    - `einstieg`: the user enters it (bind it through the layer: form.field/…)\n    - `geraet`: the user enters it (bind it through the layer: form.field/…)\n- updates `aufgabe` (only when the flow needs it):\n    - `status`: the user enters it (bind it through the layer: form.field/…)\n    - `ergebnis`: the user enters it (bind it through the layer: form.field/…)\n    - `ergebniskommentar`: the user enters it (bind it through the layer: form.field/…)\n    - `nicht_durchgefuehrt_grund`: the user enters it (bind it through the layer: form.field/…)\n    - `erledigt_am`: derived: now() — set it in the plan step, never ask\n    - `erledigt_von`: from the record the user picks in this flow\n\n## Reads\n- `betreute_person` columns vorname, nachname, geburtsdatum, allergien, wichtige_hinweise, ansprechperson\n- `aufgabe` columns titel, beschreibung, prioritaet, faelligkeitsart, faelligkeitsdatum, status\n\n## Narrow these picks (the plan has no filter for them — J-3)\n- `betreuungsperson` picks `person`, but the plan calls 'aktiv' its status field: pass `where: { betreuungsperson: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n\n## Success page\n- the success page offers the way back — `undo={flow.undo}` on <SuccessStep>: „Aufgabe wieder öffnen“ sets status=offen\n- shows: `besuch.beginn`, `aufgabe.status`\n- next flows to offer: `dokumentation-speichern`\n\n## Never write these — another flow or a tool owns them\n- `dokumentation.besuch` (owner: intent `dokumentation-speichern`)\n- `dokumentation.betreute_person` (owner: intent `dokumentation-speichern`)\n- `dokumentation.autor` (owner: intent `dokumentation-speichern`)\n- `dokumentation.text` (owner: intent `dokumentation-speichern`)\n- `dokumentation.eingabeart` (owner: intent `dokumentation-speichern`)\n- `dokumentation.erfasst_am` (owner: intent `dokumentation-speichern`)\n- `dokumentation.ergaenzung_zu` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.dokumentation` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.datei` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.typ` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_am` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_von` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.beschriftung` (owner: intent `dokumentation-speichern`)\n- `besuch.ende` (owner: intent `dokumentation-speichern`)\n- `aufgabe.titel` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.zustaendig` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsart` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsdatum` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.prioritaet` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_grund` (owner: intent `ki-vorschlaege-pruefen`)\n- `betreuungszuordnung.betreute_person` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.betreuungsperson` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.rolle` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_ab` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch_organisation` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_am` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.vertretung_fuer` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_von` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.bemerkung` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.manuell_aktiviert` (owner: intent `vertretung-aktivieren`)\n- `aufgabe.betreute_person` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.beschreibung` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.aufgabenart` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.herkunft` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.quelle_massnahme` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.tageszeitfenster` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.mindestqualifikation` (owner: tool `tagesaufgaben-erzeugen`)\n- `dokumentation.gespeichert_am` (owner: tool `dokumentation-zeitstempel-setzen`)\n- `ki_extrakt.dokumentation` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.kategorie` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.inhalt` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle_position` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_rohtext` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_datum` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.status` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.modellbezeichnung` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.promptversion` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.quelle_ki_extrakt` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.vorgeschlagen_am` (owner: tool `ki-analyse-dokumentation`)\n- `dokumentation.ki_analysestatus` (owner: tool `ki-analyse-dokumentation`)\n- `ereignisprotokoll.zeitstempel` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur_typ` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.aktion` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekttyp` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekt_id` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.betreute_person` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.nachher_wert` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur` (owner: tool `protokoll-dokumentation`)\n- `betreuungszuordnung.aktiv` (owner: tool `vertretung-status-pflegen`)\n"
+    },
+    {
+      "slug": "dokumentation-speichern",
+      "label": {
+        "de": "Dokumentation speichern",
+        "en": "Save documentation"
+      },
+      "description": "Nach dem Besuch wird der diktierte oder getippte Text mit optionalem Foto und Anhang endgültig gespeichert und der Besuch beendet.",
+      "priority": "must",
+      "writes": [
+        {
+          "entity": "dokumentation",
+          "op": "create",
+          "when": "always",
+          "fields": {
+            "besuch": "picked",
+            "betreute_person": "picked",
+            "autor": "picked",
+            "text": "user",
+            "eingabeart": "user",
+            "erfasst_am": "derived:now",
+            "ergaenzung_zu": "picked"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        },
+        {
+          "entity": "anhang_zur_dokumentation",
+          "op": "create",
+          "when": "optional",
+          "fields": {
+            "dokumentation": "picked",
+            "datei": "user",
+            "typ": "user",
+            "aufgenommen_am": "derived:now",
+            "aufgenommen_von": "picked",
+            "beschriftung": "user"
+          },
+          "multiple": true,
+          "needs": {},
+          "defaults": []
+        },
+        {
+          "entity": "besuch",
+          "op": "update",
+          "when": "always",
+          "fields": {
+            "ende": "derived:now",
+            "status": "fixed:abgeschlossen"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        }
+      ],
+      "required": [],
+      "brief": "# Flow `dokumentation-speichern` — Dokumentation speichern\nNach dem Besuch wird der diktierte oder getippte Text mit optionalem Foto und Anhang endgültig gespeichert und der Besuch beendet.\n\n## Your hook — import it, never rebuild what it owns\n`import { useDokumentationSpeichernFlow } from '@/lib/journey/flows/DokumentationSpeichern';` — generated from the Schreibliste below. It OWNS the form(s), one record search per picked field (columns and filter from the plan) and the submit plan with every fixed and derived value. You compose: `flow.forms.<entity>` for <Bound>/<Field>, `{...flow.picks.<field>.select} {...flow.pick('<field>')}` (or `flow.pickMany` for a multi pick) for <EntitySelectStep>, `flow.validateStep(n)` in StepNav.onNext, `flow.submit` + `flow.formList` for SummaryStep/SuccessStep, `flow.reset()`; what the hook does not own reads through its door `flow.port` — availability `useOccupancy(flow.port, '<entity>', { resource })`, a count `useRecordCount(flow.port, …)` — never import servicePort next to the hook. Options: `steps` (field → step), `items` (how a hit reads, per pick: besuch, betreute_person, autor, ergaenzung_zu, dokumentation, aufgenommen_von), `initial`, `messages`. The hook's docblock in .lane-context.md shows the exact call. This flow CHANGES a record of `besuch`: `{...flow.picks.besuch.select} {...flow.pick('besuch')}` picks it, the hook prefills the form with its current values and updates THAT record — never a create step, never a list from useDashboardData. Never import servicePort, useStepForm, useJourneySubmit, useRecordSearch or useDashboardData in this page — check-intents refuses a page that uses the hook and any of them.\n\n## Steps (in this order)\n1. Laufenden Besuch der betreuten Person wählen\n2. Text diktieren oder tippen, Eingabeart angeben\n3. Optional Foto oder Anhang hinzufügen\n4. Hinweis Bitte Text prüfen, besonders Medikamente und Zahlen bestätigen\n5. Speichern und Besuch beenden\n\n## Schreibliste — the ONLY writes this flow makes (the gate compares your plan steps with this list)\n- creates `dokumentation`:\n    - `besuch`: from the record the user picks in this flow\n    - `betreute_person`: from the record the user picks in this flow\n    - `autor`: from the record the user picks in this flow\n    - `text`: the user enters it (bind it through the layer: form.field/…)\n    - `eingabeart`: the user enters it (bind it through the layer: form.field/…)\n    - `erfasst_am`: derived: now() — set it in the plan step, never ask\n    - `ergaenzung_zu`: from the record the user picks in this flow\n- creates `anhang_zur_dokumentation` (only when the flow needs it) — SEVERAL per run: `flow.lists.anhang_zur_dokumentation` holds the entries (add/remove/edit), render the editor's fields inside `<ListEntries list={flow.lists.anhang_zur_dokumentation}>` on their own step; the plan creates one record per entry:\n    - `dokumentation`: from the record the user picks in this flow\n    - `datei`: the user enters it (bind it through the layer: form.field/…)\n    - `typ`: the user enters it (bind it through the layer: form.field/…)\n    - `aufgenommen_am`: derived: now() — set it in the plan step, never ask\n    - `aufgenommen_von`: from the record the user picks in this flow\n    - `beschriftung`: the user enters it (bind it through the layer: form.field/…)\n- updates `besuch`:\n    - `ende`: derived: now() — set it in the plan step, never ask\n    - `status`: fixed value `abgeschlossen` — set it in the plan step's values, never ask\n\n## Reads\n- `besuch` columns betreute_person, betreuungsperson, beginn, status\n\n## Narrow these picks (the plan has no filter for them — J-3)\n- `betreute_person` picks `betreute_person`, but the plan calls 'status' its status field: pass `where: { betreute_person: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n- `autor` picks `person`, but the plan calls 'aktiv' its status field: pass `where: { autor: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n- `ergaenzung_zu` picks `dokumentation`, but the plan calls 'ki_analysestatus' its status field: pass `where: { ergaenzung_zu: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n\n## Success page\n- shows: `dokumentation.text`, `besuch.status`\n- next flows to offer: `ki-vorschlaege-pruefen`\n\n## Never write these — another flow or a tool owns them\n- `besuch.betreute_person` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.betreuungsperson` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.beginn` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.einstieg` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.geraet` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebnis` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebniskommentar` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.nicht_durchgefuehrt_grund` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_am` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_von` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.titel` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.zustaendig` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsart` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsdatum` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.prioritaet` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_grund` (owner: intent `ki-vorschlaege-pruefen`)\n- `betreuungszuordnung.betreute_person` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.betreuungsperson` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.rolle` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_ab` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch_organisation` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_am` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.vertretung_fuer` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_von` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.bemerkung` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.manuell_aktiviert` (owner: intent `vertretung-aktivieren`)\n- `aufgabe.betreute_person` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.beschreibung` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.aufgabenart` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.herkunft` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.quelle_massnahme` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.tageszeitfenster` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.mindestqualifikation` (owner: tool `tagesaufgaben-erzeugen`)\n- `dokumentation.gespeichert_am` (owner: tool `dokumentation-zeitstempel-setzen`)\n- `ki_extrakt.dokumentation` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.kategorie` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.inhalt` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle_position` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_rohtext` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_datum` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.status` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.modellbezeichnung` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.promptversion` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.quelle_ki_extrakt` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.vorgeschlagen_am` (owner: tool `ki-analyse-dokumentation`)\n- `dokumentation.ki_analysestatus` (owner: tool `ki-analyse-dokumentation`)\n- `ereignisprotokoll.zeitstempel` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur_typ` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.aktion` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekttyp` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekt_id` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.betreute_person` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.nachher_wert` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur` (owner: tool `protokoll-dokumentation`)\n- `betreuungszuordnung.aktiv` (owner: tool `vertretung-status-pflegen`)\n"
+    },
+    {
+      "slug": "ki-vorschlaege-pruefen",
+      "label": {
+        "de": "KI-Vorschläge prüfen",
+        "en": "Review AI suggestions"
+      },
+      "description": "Pro KI-Extrakt wird eine Karte mit Belegstelle gezeigt; der Mensch aktiviert den Vorschlag als Aufgabe, passt ihn an oder verwirft ihn. Es gibt kein Alle aktivieren.",
+      "priority": "must",
+      "writes": [
+        {
+          "entity": "aufgabe",
+          "op": "update",
+          "when": "always",
+          "fields": {
+            "titel": "user",
+            "zustaendig": "picked",
+            "faelligkeitsart": "user",
+            "faelligkeitsdatum": "user",
+            "prioritaet": "user",
+            "status": "user",
+            "aktiviert_am": "derived:now",
+            "aktiviert_von": "picked",
+            "verworfen_am": "derived:now",
+            "verworfen_von": "picked",
+            "verworfen_grund": "user"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        },
+        {
+          "entity": "ki_extrakt",
+          "op": "update",
+          "when": "always",
+          "fields": {},
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        }
+      ],
+      "required": [],
+      "brief": "# Flow `ki-vorschlaege-pruefen` — KI-Vorschläge prüfen\nPro KI-Extrakt wird eine Karte mit Belegstelle gezeigt; der Mensch aktiviert den Vorschlag als Aufgabe, passt ihn an oder verwirft ihn. Es gibt kein Alle aktivieren.\n\n## Your hook — import it, never rebuild what it owns\n`import { useKiVorschlaegePruefenFlow } from '@/lib/journey/flows/KiVorschlaegePruefen';` — generated from the Schreibliste below. It OWNS the form(s), one record search per picked field (columns and filter from the plan) and the submit plan with every fixed and derived value. You compose: `flow.forms.<entity>` for <Bound>/<Field>, `{...flow.picks.<field>.select} {...flow.pick('<field>')}` (or `flow.pickMany` for a multi pick) for <EntitySelectStep>, `flow.validateStep(n)` in StepNav.onNext, `flow.submit` + `flow.formList` for SummaryStep/SuccessStep, `flow.reset()`; what the hook does not own reads through its door `flow.port` — availability `useOccupancy(flow.port, '<entity>', { resource })`, a count `useRecordCount(flow.port, …)` — never import servicePort next to the hook. Options: `steps` (field → step), `items` (how a hit reads, per pick: zustaendig, aktiviert_von, verworfen_von), `initial`, `messages`. The hook's docblock in .lane-context.md shows the exact call. This flow CHANGES a record of `aufgabe`: `{...flow.picks.aufgabe.select} {...flow.pick('aufgabe')}` picks it, the hook prefills the form with its current values and updates THAT record — never a create step, never a list from useDashboardData. This flow CHANGES a record of `ki_extrakt`: `{...flow.picks.ki_extrakt.select} {...flow.pick('ki_extrakt')}` picks it, the hook prefills the form with its current values and updates THAT record — never a create step, never a list from useDashboardData. Never import servicePort, useStepForm, useJourneySubmit, useRecordSearch or useDashboardData in this page — check-intents refuses a page that uses the hook and any of them.\n\n## Steps (in this order)\n1. Neue KI-Extrakte der betreuten Person anzeigen, dringende zuerst\n2. Pro Vorschlag Titel, Belegstelle, Zuständigen und Fälligkeit prüfen\n3. Aktivieren, Anpassen oder Verwerfen wählen\n\n## Schreibliste — the ONLY writes this flow makes (the gate compares your plan steps with this list)\n- updates `aufgabe`:\n    - `titel`: the user enters it (bind it through the layer: form.field/…)\n    - `zustaendig`: from the record the user picks in this flow\n    - `faelligkeitsart`: the user enters it (bind it through the layer: form.field/…)\n    - `faelligkeitsdatum`: the user enters it (bind it through the layer: form.field/…)\n    - `prioritaet`: the user enters it (bind it through the layer: form.field/…)\n    - `status`: the user enters it (bind it through the layer: form.field/…)\n    - `aktiviert_am`: derived: now() — set it in the plan step, never ask\n    - `aktiviert_von`: from the record the user picks in this flow\n    - `verworfen_am`: derived: now() — set it in the plan step, never ask\n    - `verworfen_von`: from the record the user picks in this flow\n    - `verworfen_grund`: the user enters it (bind it through the layer: form.field/…)\n- updates `ki_extrakt`:\n\n## Reads\n- `aufgabe` columns titel, beschreibung, prioritaet, quelle_ki_extrakt, zustaendig, faelligkeitsart\n- `ki_extrakt` columns inhalt, belegstelle, kategorie, zeitangabe_rohtext, zeitangabe_datum\n\n## Narrow these picks (the plan has no filter for them — J-3)\n- `zustaendig` picks `person`, but the plan calls 'aktiv' its status field: pass `where: { zustaendig: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n\n## Success page\n- the review ends with ONE button per way to finish — spread `variants={flow.actions}` onto <SummaryStep>, never write your own confirm buttons: „Verwerfen“ sets status=verworfen\n- the success page offers the way back — `undo={flow.undo}` on <SuccessStep>: „Zurück zum Vorschlag“ sets status=vorschlag\n- shows: `aufgabe.status`\n\n## Never write these — another flow or a tool owns them\n- `besuch.betreute_person` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.betreuungsperson` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.beginn` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.einstieg` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.geraet` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebnis` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebniskommentar` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.nicht_durchgefuehrt_grund` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_am` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_von` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `dokumentation.besuch` (owner: intent `dokumentation-speichern`)\n- `dokumentation.betreute_person` (owner: intent `dokumentation-speichern`)\n- `dokumentation.autor` (owner: intent `dokumentation-speichern`)\n- `dokumentation.text` (owner: intent `dokumentation-speichern`)\n- `dokumentation.eingabeart` (owner: intent `dokumentation-speichern`)\n- `dokumentation.erfasst_am` (owner: intent `dokumentation-speichern`)\n- `dokumentation.ergaenzung_zu` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.dokumentation` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.datei` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.typ` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_am` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_von` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.beschriftung` (owner: intent `dokumentation-speichern`)\n- `besuch.ende` (owner: intent `dokumentation-speichern`)\n- `betreuungszuordnung.betreute_person` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.betreuungsperson` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.rolle` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_ab` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch_organisation` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_am` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.vertretung_fuer` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_von` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.ausfall_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.bemerkung` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.manuell_aktiviert` (owner: intent `vertretung-aktivieren`)\n- `aufgabe.betreute_person` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.beschreibung` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.aufgabenart` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.herkunft` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.quelle_massnahme` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.tageszeitfenster` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.mindestqualifikation` (owner: tool `tagesaufgaben-erzeugen`)\n- `dokumentation.gespeichert_am` (owner: tool `dokumentation-zeitstempel-setzen`)\n- `ki_extrakt.dokumentation` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.kategorie` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.inhalt` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle_position` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_rohtext` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_datum` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.status` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.modellbezeichnung` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.promptversion` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.quelle_ki_extrakt` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.vorgeschlagen_am` (owner: tool `ki-analyse-dokumentation`)\n- `dokumentation.ki_analysestatus` (owner: tool `ki-analyse-dokumentation`)\n- `ereignisprotokoll.zeitstempel` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur_typ` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.aktion` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekttyp` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekt_id` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.betreute_person` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.nachher_wert` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur` (owner: tool `protokoll-dokumentation`)\n- `betreuungszuordnung.aktiv` (owner: tool `vertretung-status-pflegen`)\n"
+    },
+    {
+      "slug": "betreuung-zuordnen",
+      "label": {
+        "de": "Betreuung zuordnen",
+        "en": "Assign caregiver"
+      },
+      "description": "Die Pflegedienstleitung ordnet einer betreuten Person eine Hauptbetreuung oder Vertretung zu, nur wenn Personentyp und Qualifikationen passen und keine Überlappung entsteht.",
+      "priority": "must",
+      "writes": [
+        {
+          "entity": "betreuungszuordnung",
+          "op": "create",
+          "when": "always",
+          "fields": {
+            "betreute_person": "picked",
+            "betreuungsperson": "picked",
+            "rolle": "user",
+            "gueltig_ab": "user",
+            "gueltig_bis": "user",
+            "beauftragt_durch": "picked",
+            "beauftragt_durch_organisation": "user",
+            "beauftragt_am": "derived:today",
+            "vertretung_fuer": "picked",
+            "ausfall_von": "user",
+            "ausfall_bis": "user",
+            "bemerkung": "user"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        }
+      ],
+      "required": [],
+      "brief": "# Flow `betreuung-zuordnen` — Betreuung zuordnen\nDie Pflegedienstleitung ordnet einer betreuten Person eine Hauptbetreuung oder Vertretung zu, nur wenn Personentyp und Qualifikationen passen und keine Überlappung entsteht.\n\n## Your hook — import it, never rebuild what it owns\n`import { useBetreuungZuordnenFlow } from '@/lib/journey/flows/BetreuungZuordnen';` — generated from the Schreibliste below. It OWNS the form(s), one record search per picked field (columns and filter from the plan) and the submit plan with every fixed and derived value. You compose: `flow.forms.<entity>` for <Bound>/<Field>, `{...flow.picks.<field>.select} {...flow.pick('<field>')}` (or `flow.pickMany` for a multi pick) for <EntitySelectStep>, `flow.validateStep(n)` in StepNav.onNext, `flow.submit` + `flow.formList` for SummaryStep/SuccessStep, `flow.reset()`; what the hook does not own reads through its door `flow.port` — availability `useOccupancy(flow.port, '<entity>', { resource })`, a count `useRecordCount(flow.port, …)` — never import servicePort next to the hook. Options: `steps` (field → step), `items` (how a hit reads, per pick: betreute_person, betreuungsperson, beauftragt_durch, vertretung_fuer), `initial`, `messages`. The hook's docblock in .lane-context.md shows the exact call. Never import servicePort, useStepForm, useJourneySubmit, useRecordSearch or useDashboardData in this page — check-intents refuses a page that uses the hook and any of them.\n\n## Steps (in this order)\n1. Betreute Person wählen\n2. Betreuungsperson mit Typ darf betreuen wählen\n3. Rolle Hauptbetreuung oder Vertretung angeben\n4. Gültigkeit, Auftraggeber und bei Vertretung die Hauptbetreuung wählen\n5. Bei Hauptbetreuung optional Ausfallzeitraum erfassen\n\n## Schreibliste — the ONLY writes this flow makes (the gate compares your plan steps with this list)\n- creates `betreuungszuordnung`:\n    - `betreute_person`: from the record the user picks in this flow\n    - `betreuungsperson`: from the record the user picks in this flow\n    - `rolle`: the user enters it (bind it through the layer: form.field/…)\n    - `gueltig_ab`: the user enters it (bind it through the layer: form.field/…)\n    - `gueltig_bis`: the user enters it (bind it through the layer: form.field/…)\n    - `beauftragt_durch`: from the record the user picks in this flow\n    - `beauftragt_durch_organisation`: the user enters it (bind it through the layer: form.field/…)\n    - `beauftragt_am`: derived: today() — set it in the plan step, never ask\n    - `vertretung_fuer`: from the record the user picks in this flow\n    - `ausfall_von`: the user enters it (bind it through the layer: form.field/…)\n    - `ausfall_bis`: the user enters it (bind it through the layer: form.field/…)\n    - `bemerkung`: the user enters it (bind it through the layer: form.field/…)\n\n## Reads\n- `betreute_person` columns vorname, nachname, status\n- `person` columns vorname, nachname, personentyp\n\n## Checks BEFORE the write (block the submit with the message when they fail)\n- no_overlap (from=`betreuungszuordnung.gueltig_ab`, to=`betreuungszuordnung.gueltig_bis`, resource=`betreuungszuordnung.betreute_person`, status=`betreuungszuordnung.rolle`, free=`vertretung`) — message: „Für diese betreute Person gibt es im Zeitraum bereits eine Hauptbetreuung.“\n- custom (field=`betreuungszuordnung.betreuungsperson`, rule=`Personentyp darf betreuen, und alle vom Personentyp erforderlichen Qualifikationsarten sind als Qualifikation der Person vorhanden und nicht abgelaufen`) — message: „Die Person darf nicht betreuen oder hat nicht alle erforderlichen gültigen Qualifikationen.“\n\n## Narrow these picks (the plan has no filter for them — J-3)\n- `vertretung_fuer` picks `betreuungszuordnung`, but the plan calls 'rolle' its status field: pass `where: { vertretung_fuer: r => … }` to the hook so the step offers only the records that belong here (the open ones, the ones of the picked parent) — never every record of every state\n\n## Success page\n- shows: `betreuungszuordnung.rolle`, `betreuungszuordnung.gueltig_ab`\n\n## Never write these — another flow or a tool owns them\n- `besuch.betreute_person` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.betreuungsperson` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.beginn` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.einstieg` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.geraet` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebnis` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebniskommentar` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.nicht_durchgefuehrt_grund` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_am` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_von` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `dokumentation.besuch` (owner: intent `dokumentation-speichern`)\n- `dokumentation.betreute_person` (owner: intent `dokumentation-speichern`)\n- `dokumentation.autor` (owner: intent `dokumentation-speichern`)\n- `dokumentation.text` (owner: intent `dokumentation-speichern`)\n- `dokumentation.eingabeart` (owner: intent `dokumentation-speichern`)\n- `dokumentation.erfasst_am` (owner: intent `dokumentation-speichern`)\n- `dokumentation.ergaenzung_zu` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.dokumentation` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.datei` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.typ` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_am` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_von` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.beschriftung` (owner: intent `dokumentation-speichern`)\n- `besuch.ende` (owner: intent `dokumentation-speichern`)\n- `aufgabe.titel` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.zustaendig` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsart` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsdatum` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.prioritaet` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_grund` (owner: intent `ki-vorschlaege-pruefen`)\n- `betreuungszuordnung.manuell_aktiviert` (owner: intent `vertretung-aktivieren`)\n- `aufgabe.betreute_person` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.beschreibung` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.aufgabenart` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.herkunft` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.quelle_massnahme` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.tageszeitfenster` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.mindestqualifikation` (owner: tool `tagesaufgaben-erzeugen`)\n- `dokumentation.gespeichert_am` (owner: tool `dokumentation-zeitstempel-setzen`)\n- `ki_extrakt.dokumentation` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.kategorie` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.inhalt` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle_position` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_rohtext` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_datum` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.status` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.modellbezeichnung` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.promptversion` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.quelle_ki_extrakt` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.vorgeschlagen_am` (owner: tool `ki-analyse-dokumentation`)\n- `dokumentation.ki_analysestatus` (owner: tool `ki-analyse-dokumentation`)\n- `ereignisprotokoll.zeitstempel` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur_typ` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.aktion` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekttyp` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekt_id` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.betreute_person` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.nachher_wert` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur` (owner: tool `protokoll-dokumentation`)\n- `betreuungszuordnung.aktiv` (owner: tool `vertretung-status-pflegen`)\n"
+    },
+    {
+      "slug": "vertretung-aktivieren",
+      "label": {
+        "de": "Vertretung aktivieren",
+        "en": "Activate substitute"
+      },
+      "description": "Die Pflegedienstleitung aktiviert eine Vertretung manuell oder meldet den Ausfall der Hauptbetreuung.",
+      "priority": "nice",
+      "writes": [
+        {
+          "entity": "betreuungszuordnung",
+          "op": "update",
+          "when": "always",
+          "fields": {
+            "ausfall_von": "user",
+            "ausfall_bis": "user",
+            "manuell_aktiviert": "user"
+          },
+          "multiple": false,
+          "needs": {},
+          "defaults": []
+        }
+      ],
+      "required": [],
+      "brief": "# Flow `vertretung-aktivieren` — Vertretung aktivieren\nDie Pflegedienstleitung aktiviert eine Vertretung manuell oder meldet den Ausfall der Hauptbetreuung.\n\n## Your hook — import it, never rebuild what it owns\n`import { useVertretungAktivierenFlow } from '@/lib/journey/flows/VertretungAktivieren';` — generated from the Schreibliste below. It OWNS the form(s), one record search per picked field (columns and filter from the plan) and the submit plan with every fixed and derived value. You compose: `flow.forms.<entity>` for <Bound>/<Field>, `{...flow.picks.<field>.select} {...flow.pick('<field>')}` (or `flow.pickMany` for a multi pick) for <EntitySelectStep>, `flow.validateStep(n)` in StepNav.onNext, `flow.submit` + `flow.formList` for SummaryStep/SuccessStep, `flow.reset()`; what the hook does not own reads through its door `flow.port` — availability `useOccupancy(flow.port, '<entity>', { resource })`, a count `useRecordCount(flow.port, …)` — never import servicePort next to the hook. Options: `steps` (field → step), `items` (how a hit reads, per pick), `initial`, `messages`. The hook's docblock in .lane-context.md shows the exact call. This flow CHANGES a record of `betreuungszuordnung`: `{...flow.picks.betreuungszuordnung.select} {...flow.pick('betreuungszuordnung')}` picks it, the hook prefills the form with its current values and updates THAT record — never a create step, never a list from useDashboardData. Never import servicePort, useStepForm, useJourneySubmit, useRecordSearch or useDashboardData in this page — check-intents refuses a page that uses the hook and any of them.\n\n## Steps (in this order)\n1. Betreuungszuordnung der Hauptbetreuung wählen\n2. Ausfallzeitraum melden\n3. Passende Vertretung wählen und manuell aktivieren\n\n## Schreibliste — the ONLY writes this flow makes (the gate compares your plan steps with this list)\n- updates `betreuungszuordnung`:\n    - `ausfall_von`: the user enters it (bind it through the layer: form.field/…)\n    - `ausfall_bis`: the user enters it (bind it through the layer: form.field/…)\n    - `manuell_aktiviert`: the user enters it (bind it through the layer: form.field/…)\n\n## Reads\n- `betreuungszuordnung` columns betreute_person, betreuungsperson, rolle, gueltig_ab, gueltig_bis\n\n## Success page\n- the success page offers the way back — `undo={flow.undo}` on <SuccessStep>: „Aktivierung zurücknehmen“ sets manuell_aktiviert=false\n- shows: `betreuungszuordnung.manuell_aktiviert`\n\n## Never write these — another flow or a tool owns them\n- `besuch.betreute_person` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.betreuungsperson` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.beginn` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.einstieg` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `besuch.geraet` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.status` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebnis` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.ergebniskommentar` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.nicht_durchgefuehrt_grund` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_am` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `aufgabe.erledigt_von` (owner: intent `besuch-starten-und-aufgaben-abhaken`)\n- `dokumentation.besuch` (owner: intent `dokumentation-speichern`)\n- `dokumentation.betreute_person` (owner: intent `dokumentation-speichern`)\n- `dokumentation.autor` (owner: intent `dokumentation-speichern`)\n- `dokumentation.text` (owner: intent `dokumentation-speichern`)\n- `dokumentation.eingabeart` (owner: intent `dokumentation-speichern`)\n- `dokumentation.erfasst_am` (owner: intent `dokumentation-speichern`)\n- `dokumentation.ergaenzung_zu` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.dokumentation` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.datei` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.typ` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_am` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.aufgenommen_von` (owner: intent `dokumentation-speichern`)\n- `anhang_zur_dokumentation.beschriftung` (owner: intent `dokumentation-speichern`)\n- `besuch.ende` (owner: intent `dokumentation-speichern`)\n- `aufgabe.titel` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.zustaendig` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsart` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.faelligkeitsdatum` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.prioritaet` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.aktiviert_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_am` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_von` (owner: intent `ki-vorschlaege-pruefen`)\n- `aufgabe.verworfen_grund` (owner: intent `ki-vorschlaege-pruefen`)\n- `betreuungszuordnung.betreute_person` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.betreuungsperson` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.rolle` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_ab` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.gueltig_bis` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_durch_organisation` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.beauftragt_am` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.vertretung_fuer` (owner: intent `betreuung-zuordnen`)\n- `betreuungszuordnung.bemerkung` (owner: intent `betreuung-zuordnen`)\n- `aufgabe.betreute_person` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.beschreibung` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.aufgabenart` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.herkunft` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.quelle_massnahme` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.tageszeitfenster` (owner: tool `tagesaufgaben-erzeugen`)\n- `aufgabe.mindestqualifikation` (owner: tool `tagesaufgaben-erzeugen`)\n- `dokumentation.gespeichert_am` (owner: tool `dokumentation-zeitstempel-setzen`)\n- `ki_extrakt.dokumentation` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.kategorie` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.inhalt` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.belegstelle_position` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_rohtext` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.zeitangabe_datum` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.status` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.modellbezeichnung` (owner: tool `ki-analyse-dokumentation`)\n- `ki_extrakt.promptversion` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.quelle_ki_extrakt` (owner: tool `ki-analyse-dokumentation`)\n- `aufgabe.vorgeschlagen_am` (owner: tool `ki-analyse-dokumentation`)\n- `dokumentation.ki_analysestatus` (owner: tool `ki-analyse-dokumentation`)\n- `ereignisprotokoll.zeitstempel` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur_typ` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.aktion` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekttyp` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.objekt_id` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.betreute_person` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.nachher_wert` (owner: tool `protokoll-aufgabe`)\n- `ereignisprotokoll.akteur` (owner: tool `protokoll-dokumentation`)\n- `betreuungszuordnung.aktiv` (owner: tool `vertretung-status-pflegen`)\n"
+    }
+  ],
+  "public_pages": [],
+  "tools": [
+    {
+      "id": "tagesaufgaben-erzeugen",
+      "purpose": "Täglich um 00:05 erzeugt das System aus allen aktiven Maßnahmen des Pflegeplans, die laut Wiederholungsregel (einmalig, täglich, jeden n-ten Tag, bestimmte Wochentage) und Gültigkeit heute fällig sind, je eine Aufgabe mit Herkunft Pflegeplan. Pro Maßnahme und Tag nur eine Aufgabe."
+    },
+    {
+      "id": "besuch-automatisch-beenden",
+      "purpose": "Besuche, die länger als 12 Stunden laufend offen sind, werden als nicht ordnungsgemäß beendet markiert. Läuft stündlich."
+    },
+    {
+      "id": "dokumentation-zeitstempel-setzen",
+      "purpose": "Beim Anlegen einer Dokumentation schreibt der Server den Speicherzeitpunkt aus seiner Uhr, nie aus Gerät oder KI."
+    },
+    {
+      "id": "ki-analyse-dokumentation",
+      "purpose": "Nach dem Speichern einer Dokumentation analysiert ein Sprachmodell nur den Text, den Besuchszeitpunkt und die erlaubten Aufgabenarten (ohne Namen und Adressen) und liefert strukturierte Extrakte mit wörtlicher Belegstelle samt Position. Extrakte ohne gültige Belegstelle im Text werden verworfen. Relative Zeitangaben werden gegen den Besuchsbeginn aufgelöst, der Rohtext bleibt. Keine Diagnose, keine Medikationsänderung, keine erfundenen Zahlen. Medikationshinweise werden nur zu Aufgaben Medikation klären. Zu jedem Extrakt entsteht eine Aufgabe als Vorschlag. Akute Hinweise (Sturz, Atemnot, Bewusstseinsveränderung) setzen Priorität dringend. Bei Ausfall bleibt der Status ausstehend bzw. fehlgeschlagen und der Lauf wird nachgeholt. Der Datensatz wird vor dem Speichern erneut gelesen."
+    },
+    {
+      "id": "ki-analyse-nachholen",
+      "purpose": "Dokumentationen mit Status ausstehend oder fehlgeschlagen werden regelmäßig erneut gesendet; je Lauf nur wenige Datensätze."
+    },
+    {
+      "id": "dringlichkeit-mail",
+      "purpose": "Wird ein KI-Vorschlag mit Priorität dringend angelegt, geht eine Zusammenfassungsmail an den Konto-Inhaber (Pflegedienstleitung), ohne Namen im Text."
+    },
+    {
+      "id": "aufgabe-zeitstempel-setzen",
+      "purpose": "Bei Statuswechsel einer Aufgabe auf Wartet auf Dritte setzt das System keinen Zeitstempel, bei Aktivierung eines Vorschlags wird der Extrakt mit der Aufgabe verknüpft. Prüft das Feld Status im Code: Wurde ein Vorschlag verworfen, wird der zugehörige Extrakt auf verworfen gesetzt, wurde er aktiviert, auf bestätigt."
+    },
+    {
+      "id": "protokoll-aufgabe",
+      "purpose": "Jede Änderung einer Aufgabe wird im Ereignisprotokoll angehängt (Server-Zeitstempel, Akteur, Aktion, Objekt)."
+    },
+    {
+      "id": "protokoll-dokumentation",
+      "purpose": "Jede neue Dokumentation wird im Ereignisprotokoll festgehalten."
+    },
+    {
+      "id": "protokoll-medikation",
+      "purpose": "Jede Änderung am Medikationsplan erzeugt einen Protokolleintrag mit Vorher- und Nachher-Wert und der Begründung."
+    },
+    {
+      "id": "vertretung-status-pflegen",
+      "purpose": "Täglich wird bei Betreuungszuordnungen das Feld Aktiv gesetzt: aktiv, wenn heute zwischen gültig ab und gültig bis, bei Vertretungen nur wenn die Hauptbetreuung im Ausfallzeitraum ist oder die Vertretung manuell aktiviert wurde."
+    },
+    {
+      "id": "qualifikationsstatus-berechnen",
+      "purpose": "Täglich wird für jede Qualifikation einer Person der berechnete Status ermittelt: abgelaufen wenn gültig_bis vor heute, läuft in 60 Tagen ab wenn gültig_bis innerhalb der nächsten 60 Tage, sonst gültig."
+    }
+  ],
+  "covered_by_platform": [
+    {
+      "wish": "Stammdaten von Personen, Typen, Qualifikationen pflegen",
+      "feature": "record_form"
+    },
+    {
+      "wish": "Rollen und Rechte der Anwender",
+      "feature": "user_roles"
+    },
+    {
+      "wish": "Änderungsnachvollziehbarkeit je Datensatz",
+      "feature": "record_history"
+    },
+    {
+      "wish": "Anhänge und Fotos zur Dokumentation",
+      "feature": "record_attachments"
+    },
+    {
+      "wish": "Listen, Suche und Sortierung der Betreuten",
+      "feature": "search_filter"
+    }
+  ],
+  "ownership": {
+    "besuch": {
+      "betreute_person": "intent:besuch-starten-und-aufgaben-abhaken",
+      "betreuungsperson": "intent:besuch-starten-und-aufgaben-abhaken",
+      "beginn": "intent:besuch-starten-und-aufgaben-abhaken",
+      "status": "tool:besuch-automatisch-beenden",
+      "einstieg": "intent:besuch-starten-und-aufgaben-abhaken",
+      "geraet": "intent:besuch-starten-und-aufgaben-abhaken",
+      "ende": "tool:besuch-automatisch-beenden"
+    },
+    "aufgabe": {
+      "status": "tool:ki-analyse-dokumentation",
+      "ergebnis": "intent:besuch-starten-und-aufgaben-abhaken",
+      "ergebniskommentar": "intent:besuch-starten-und-aufgaben-abhaken",
+      "nicht_durchgefuehrt_grund": "intent:besuch-starten-und-aufgaben-abhaken",
+      "erledigt_am": "intent:besuch-starten-und-aufgaben-abhaken",
+      "erledigt_von": "intent:besuch-starten-und-aufgaben-abhaken",
+      "titel": "tool:ki-analyse-dokumentation",
+      "zustaendig": "intent:ki-vorschlaege-pruefen",
+      "faelligkeitsart": "tool:ki-analyse-dokumentation",
+      "faelligkeitsdatum": "tool:tagesaufgaben-erzeugen",
+      "prioritaet": "tool:ki-analyse-dokumentation",
+      "aktiviert_am": "intent:ki-vorschlaege-pruefen",
+      "aktiviert_von": "intent:ki-vorschlaege-pruefen",
+      "verworfen_am": "intent:ki-vorschlaege-pruefen",
+      "verworfen_von": "intent:ki-vorschlaege-pruefen",
+      "verworfen_grund": "intent:ki-vorschlaege-pruefen",
+      "betreute_person": "tool:ki-analyse-dokumentation",
+      "beschreibung": "tool:ki-analyse-dokumentation",
+      "aufgabenart": "tool:ki-analyse-dokumentation",
+      "herkunft": "tool:ki-analyse-dokumentation",
+      "quelle_massnahme": "tool:tagesaufgaben-erzeugen",
+      "tageszeitfenster": "tool:tagesaufgaben-erzeugen",
+      "mindestqualifikation": "tool:tagesaufgaben-erzeugen",
+      "quelle_ki_extrakt": "tool:ki-analyse-dokumentation",
+      "vorgeschlagen_am": "tool:ki-analyse-dokumentation"
+    },
+    "dokumentation": {
+      "besuch": "intent:dokumentation-speichern",
+      "betreute_person": "intent:dokumentation-speichern",
+      "autor": "intent:dokumentation-speichern",
+      "text": "intent:dokumentation-speichern",
+      "eingabeart": "intent:dokumentation-speichern",
+      "erfasst_am": "intent:dokumentation-speichern",
+      "ergaenzung_zu": "intent:dokumentation-speichern",
+      "gespeichert_am": "tool:dokumentation-zeitstempel-setzen",
+      "ki_analysestatus": "tool:ki-analyse-nachholen"
+    },
+    "anhang_zur_dokumentation": {
+      "dokumentation": "intent:dokumentation-speichern",
+      "datei": "intent:dokumentation-speichern",
+      "typ": "intent:dokumentation-speichern",
+      "aufgenommen_am": "intent:dokumentation-speichern",
+      "aufgenommen_von": "intent:dokumentation-speichern",
+      "beschriftung": "intent:dokumentation-speichern"
+    },
+    "betreuungszuordnung": {
+      "betreute_person": "intent:betreuung-zuordnen",
+      "betreuungsperson": "intent:betreuung-zuordnen",
+      "rolle": "intent:betreuung-zuordnen",
+      "gueltig_ab": "intent:betreuung-zuordnen",
+      "gueltig_bis": "intent:betreuung-zuordnen",
+      "beauftragt_durch": "intent:betreuung-zuordnen",
+      "beauftragt_durch_organisation": "intent:betreuung-zuordnen",
+      "beauftragt_am": "intent:betreuung-zuordnen",
+      "vertretung_fuer": "intent:betreuung-zuordnen",
+      "ausfall_von": "intent:vertretung-aktivieren",
+      "ausfall_bis": "intent:vertretung-aktivieren",
+      "bemerkung": "intent:betreuung-zuordnen",
+      "manuell_aktiviert": "intent:vertretung-aktivieren",
+      "aktiv": "tool:vertretung-status-pflegen"
+    },
+    "ki_extrakt": {
+      "dokumentation": "tool:ki-analyse-dokumentation",
+      "kategorie": "tool:ki-analyse-dokumentation",
+      "inhalt": "tool:ki-analyse-dokumentation",
+      "belegstelle": "tool:ki-analyse-dokumentation",
+      "belegstelle_position": "tool:ki-analyse-dokumentation",
+      "zeitangabe_rohtext": "tool:ki-analyse-dokumentation",
+      "zeitangabe_datum": "tool:ki-analyse-dokumentation",
+      "status": "tool:aufgabe-zeitstempel-setzen",
+      "modellbezeichnung": "tool:ki-analyse-dokumentation",
+      "promptversion": "tool:ki-analyse-dokumentation"
+    },
+    "ereignisprotokoll": {
+      "zeitstempel": "tool:protokoll-medikation",
+      "akteur_typ": "tool:protokoll-medikation",
+      "aktion": "tool:protokoll-medikation",
+      "objekttyp": "tool:protokoll-medikation",
+      "objekt_id": "tool:protokoll-medikation",
+      "betreute_person": "tool:protokoll-medikation",
+      "nachher_wert": "tool:protokoll-medikation",
+      "akteur": "tool:protokoll-dokumentation"
+    }
+  },
+  "dashboard": {
+    "focus": [
+      "Zahl der überfälligen Aufgaben",
+      "Heutige offene Aufgaben je betreuter Person",
+      "KI-Vorschläge, die auf Prüfung warten",
+      "Laufende Besuche",
+      "Ablaufende Qualifikationen innerhalb von 60 Tagen",
+      "Dauerhafter Hinweis: Die App ersetzt keinen Notruf",
+      "„Dashboard-Fokus“ direkt auf der Übersicht: Zeigt: Zahl der überfälligen Aufgaben, heutige offene Aufgaben je betreuter Person, KI-Vorschläge die auf Prüfung warten, laufende Besuche, Qualifikationen die in 60 Tagen ablaufen (Zahl und Liste), ablaufende Qualifikationen nach Person, dauerhafter Hinweis dass die App keinen Notruf ersetzt",
+      "„Kopfzeile Betreute Person“ direkt auf der Übersicht: Beim Öffnen einer betreuten Person zeigt die Übersicht oben immer sichtbar: Name, Geburtsdatum, Allergien und Unverträglichkeiten, wichtige Hinweise sowie die Ansprechperson mit Telefonnummer als Anruflink — diese Kopfzeile bleibt beim Scrollen sichtbar",
+      "„Reiter Erledigte Aufgaben“ direkt auf der Übersicht: Im Reiter Erledigt einer betreuten Person zeigt die Übersicht alle bereits erledigten und nicht durchgeführten Aufgaben dieser Person, neueste zuerst, einschließlich der Aufgaben von Kolleginnen und Kollegen — ein Klick öffnet die Aufgabe mit Ergebnis und Kommentar",
+      "„Startseite Betreuungsperson“ direkt auf der Übersicht: Die Startseite zeigt einen großen Button Betreute Personen, darunter einen Link Alle meine Betreuten und die Zahl der überfälligen Aufgaben — ein Tipp auf den Button führt direkt zur eigenen betreuten Person oder zur Liste der eigenen Betreuten",
+      "„Liste Betreute Personen“ direkt auf der Übersicht: Die Liste zeigt Vorname, Nachname und letzten Besuch (Datum und Uhrzeit) der eigenen aktiven Betreuten, sortiert nach Entfernung wenn der Standort verfügbar ist, sonst alphabetisch — ein Tipp führt direkt zur betreuten Person und startet den Besuch"
+    ],
+    "hints": [
+      "Betreute Personen mit Allergien und wichtigen Hinweisen oben anzeigen",
+      "Letzter Besuch je betreuter Person in der Liste zeigen",
+      "Dringende Vorschläge zuerst und markiert",
+      "Ereignisprotokoll nur lesbar, nach betreuter Person filterbar",
+      "\"Dashboard-Fokus\" — build it INTO the overview page: Zeigt: Zahl der überfälligen Aufgaben, heutige offene Aufgaben je betreuter Person, KI-Vorschläge die auf Prüfung warten, laufende Besuche, Qualifikationen die in 60 Tagen ablaufen (Zahl und Liste), ablaufende Qualifikationen nach Person, dauerhafter Hinweis dass die App keinen Notruf ersetzt. Everything the records and their linked lists hold may be shown (the latest entry of a linked list too). Link to no #/intents/… address that does not exist.",
+      "\"Kopfzeile Betreute Person\" — build it INTO the overview page: Beim Öffnen einer betreuten Person zeigt die Übersicht oben immer sichtbar: Name, Geburtsdatum, Allergien und Unverträglichkeiten, wichtige Hinweise sowie die Ansprechperson mit Telefonnummer als Anruflink — diese Kopfzeile bleibt beim Scrollen sichtbar. Everything the records and their linked lists hold may be shown (the latest entry of a linked list too). Link to no #/intents/… address that does not exist.",
+      "\"Reiter Erledigte Aufgaben\" — build it INTO the overview page: Im Reiter Erledigt einer betreuten Person zeigt die Übersicht alle bereits erledigten und nicht durchgeführten Aufgaben dieser Person, neueste zuerst, einschließlich der Aufgaben von Kolleginnen und Kollegen — ein Klick öffnet die Aufgabe mit Ergebnis und Kommentar. Everything the records and their linked lists hold may be shown (the latest entry of a linked list too). Link to no #/intents/… address that does not exist.",
+      "\"Startseite Betreuungsperson\" — build it INTO the overview page: Die Startseite zeigt einen großen Button Betreute Personen, darunter einen Link Alle meine Betreuten und die Zahl der überfälligen Aufgaben — ein Tipp auf den Button führt direkt zur eigenen betreuten Person oder zur Liste der eigenen Betreuten. Everything the records and their linked lists hold may be shown (the latest entry of a linked list too). Link to no #/intents/… address that does not exist.",
+      "\"Liste Betreute Personen\" — build it INTO the overview page: Die Liste zeigt Vorname, Nachname und letzten Besuch (Datum und Uhrzeit) der eigenen aktiven Betreuten, sortiert nach Entfernung wenn der Standort verfügbar ist, sonst alphabetisch — ein Tipp führt direkt zur betreuten Person und startet den Besuch. Everything the records and their linked lists hold may be shown (the latest entry of a linked list too). Link to no #/intents/… address that does not exist."
+    ],
+    "views": [],
+    "writes": [],
+    "wishes": []
+  }
+}

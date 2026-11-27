@@ -1,0 +1,108 @@
+Erstelle eine Anwendung die folgende Spezifikation erfüllt:
+
+4. Spezifikation
+4.1 Ziele und Abgrenzung
+Ziele
+•	Eine Betreuungsperson erreicht von der Startseite die richtige betreute Person mit einem Tipp.
+•	Ein typischer Besuch lässt sich mit höchstens fünf Tipps plus Diktat dokumentieren (Person öffnen, Aufgaben abhaken, "Dokumentation", Diktat, Speichern).
+•	Button-Klick bis zur Anzeige der Person oder Liste in höchstens 3 Sekunden bei normalem Netz.
+•	Lückenlose, unveränderliche Nachvollziehbarkeit aller Vorgänge.
+Nicht-Ziele der Version 1
+•	Abrechnung und Leistungsnachweise
+•	Tourenplanung und Dienstplan
+•	automatische Bestellungen und Medikamentenbestellung
+•	Notruf oder Alarmierung außerhalb der Anwendung
+•	Schnittstellen zu Ärzten, Kassen, Telematikinfrastruktur
+•	Arztzugang mit Login
+•	Mehrmandantenfähigkeit
+4.2 Rollen und Rechte
+Rolle	Darf
+Betreuungsperson	eigene (und aktiv vertretene) betreute Personen sehen, Besuche starten, Aufgaben bearbeiten, dokumentieren, KI-Vorschläge prüfen, Aufgaben zuordnen
+Pflegedienstleitung	alles lesen, Zuordnungen und Vertretungen setzen, Pflegeplan pflegen, Aufgaben umhängen, Protokoll einsehen, Ausfall melden
+Verwaltung	Personen, Typen, Qualifikationen, Stammdaten der Betreuten pflegen; keine Dokumentationen und Diagnosen einsehen
+Administrator	Konfiguration, Benutzer, Gerätefreigaben, Aufbewahrungsfristen
+Arzt, Angehörige	nur als Kontakt gepflegt, kein Zugang
+Regeln:
+•	Eine Betreuungsperson sieht eine betreute Person nur, wenn sie Hauptbetreuung ist oder eine aktive Vertretung hat.
+•	Wer als Vertretung aktiv wird, sieht die gesamte Historie der Person (Dokumentationen, Aufgaben).
+•	Jeder lesende Zugriff auf eine betreute Person wird im Ereignisprotokoll festgehalten.
+4.3 Datenmodell
+Alle Tabellen haben: ID, angelegt am, angelegt von, geändert am, geändert von. Fachliche Löschung gibt es nicht, nur Sperren (aktiv/inaktiv).
+Personentyp
+Bezeichnung, Beschreibung, Systemrolle (Betreuungsperson / Pflegedienstleitung / Verwaltung / Administrator / extern), darf betreuen (ja/nein), hat App-Zugang (ja/nein), erforderliche Qualifikationsarten (mehrfach), aktiv.
+Vorbelegt: Betreuungsperson, Pflegedienstleitung, Verwaltung, Arzt, Angehörige(r).
+Qualifikationsart
+Bezeichnung, Beschreibung, Nachweis erforderlich (ja/nein).
+Person
+Vorname, Nachname, Personentyp (Lookup), Straße, Hausnummer, PLZ, Ort, Land, Breitengrad, Längengrad, Geocoding-Status (ok / fehlgeschlagen / ausstehend), E-Mail, Telefon, Mobil, Benutzerkonto (nur wenn Typ App-Zugang hat), aktiv von/bis, Bemerkung.
+Personen-Qualifikation
+Person, Qualifikationsart, Nachweis (Datei), erworben am, gültig bis, geprüft von, geprüft am. Der Status (gültig / läuft in 60 Tagen ab / abgelaufen) wird berechnet.
+Betreute Person
+Vorname, Nachname, Geburtsdatum, Adresse (wie Person) samt Koordinaten, Einrichtung (Text), Zimmer / Wohnbereich, Zugangshinweise, Betreuungsbeginn, Betreuungsende (leer = laufend), Status (aktiv / pausiert / beendet), Allergien und Unverträglichkeiten (Text), wichtige Hinweise (Kurztext, wird oben angezeigt), Hausarzt (Person), Ansprechperson (Person, Typ Angehörige(r)), Beziehung der Ansprechperson, Ersatz-Ansprechperson.
+Diagnose
+Betreute Person, Bezeichnung, ICD-Code (optional), festgestellt von (Person), gültig ab/bis, Bemerkung.
+Medikationsplan-Eintrag
+Betreute Person, Medikament, Dosierung, Rhythmus / Zeiten, gültig ab/bis, verordnet von (Person), Quelle (Datei, optional).
+Nur Menschen mit Berechtigung ändern ihn. Jede Änderung erzeugt automatisch eine Aufgabe oder einen Protokolleintrag mit Begründung.
+Betreuungszuordnung
+Betreute Person, Betreuungsperson, Rolle (Hauptbetreuung / Vertretung), gültig ab, gültig bis, beauftragt durch (Person oder Organisation), beauftragt am, Ausfall von/bis (nur Hauptbetreuung), Vertretung für (Verweis, nur Vertretung), Bemerkung.
+Regeln:
+•	Pro Betreuter und Zeitpunkt genau eine Hauptbetreuung, keine Überlappung.
+•	Zuordnung nur, wenn Personentyp "darf betreuen" und alle erforderlichen Qualifikationen gültig sind.
+•	Eine Vertretung ist aktiv, wenn die Hauptbetreuung im Ausfallzeitraum ist oder die Pflegedienstleitung sie manuell aktiviert hat.
+Maßnahme (Pflegeplan)
+Betreute Person, Bezeichnung, Maßnahmenart (Lookup), Beschreibung, Wiederholungsregel (einmalig / täglich / jeden n-ten Tag / bestimmte Wochentage), Tageszeitfenster (morgens / mittags / abends / egal), gültig ab/bis, Mindestqualifikation, verordnet von (Person), aktiv.
+Das System erzeugt daraus jeden Tag um 00:05 Uhr die Tagesaufgaben.
+Aufgabe
+Betreute Person, Titel, Beschreibung, Aufgabenart (Lookup: Pflegemaßnahme, Allgemeinzustand, Medikation klären, Besorgung, Behörde / Recht, Arzt verständigen, Vermerk nächster Besuch, Sonstiges), Herkunft (Pflegeplan / manuell / KI-Vorschlag), Quelle (Maßnahme oder KI-Extrakt), Priorität (normal / dringend), zuständig (Person), Fälligkeitsart (beim nächsten Besuch / Datum / Tageszeitfenster), Fälligkeitsdatum, Mindestqualifikation, Status, Ergebnis, Ergebniskommentar.
+Zeitstempel (alle mit Akteur): vorgeschlagen, aktiviert, zugeordnet, begonnen, erledigt, verworfen.
+Status: Vorschlag → Offen → Erledigt. Seitenzweige sind Nicht durchgeführt (Grund Pflicht), Wartet auf Dritte (Person angeben) und Verworfen (Grund optional). "Überfällig" wird berechnet.
+Ergebnis (nur bei Erledigt): erfolgreich / mit Schwierigkeiten / nicht erfolgreich.
+Besuch
+Betreute Person, Betreuungsperson, Beginn, Ende, Status (laufend / abgeschlossen / nicht ordnungsgemäß beendet), Einstieg (Standort / Liste), als Vertretung (ja/nein), Gerät.
+Ein Besuch, der länger als 12 Stunden offen ist, wird automatisch als "nicht ordnungsgemäß beendet" markiert.
+Dokumentation
+Besuch, Betreute Person, Autor, Text (Original, unveränderlich), Eingabeart (diktiert / getippt), gespeichert am (Server), erfasst am (Gerät), Ergänzung zu (Verweis auf frühere Dokumentation, optional), KI-Analysestatus (ausstehend / fertig / fehlgeschlagen).
+Korrekturen sind nur als neue Dokumentation mit Verweis zulässig.
+Anhang
+Dokumentation, Datei, Typ (Foto / Dokument), aufgenommen am, aufgenommen von, Beschriftung.
+Fotos entstehen nur über die App-Kamera.
+KI-Extrakt
+Dokumentation, Kategorie (Allgemeinzustand / Schwierigkeit / Entscheidung / Durchgeführtes / Medikationshinweis / Besorgung / Behörde-Recht / Arzt verständigen / Vermerk nächster Besuch / Dringlichkeit), Inhalt (Kurztext), Belegstelle (wörtlich, mit Position im Text), genannte Zeitangabe (Rohtext), Status (neu / bestätigt / verworfen), verknüpfte Aufgabe, Modellbezeichnung und Promptversion.
+Ereignisprotokoll
+Zeitstempel (Server, UTC), Akteur (Person / System / KI), Aktion, Objekttyp, Objekt-ID, betreute Person (für Filterung), Vorher-Wert, Nachher-Wert, Gerät.
+Nur anfügbar, nie änderbar oder löschbar. Es protokolliert auch lesende Zugriffe auf Betreute.
+4.4 Abläufe und Bildschirme (Betreuungsperson)
+B0 Startseite.
+Ein großer Button "Betreute Personen". Darunter klein der Link "Alle meine Betreuten" und die Zahl der überfälligen Aufgaben. Mehr nicht.
+B1 Standortsuche.
+1.	Standort abfragen, Genauigkeit lesen.
+2.	Suchradius = 150 m + gemeldete Genauigkeit.
+3.	Gefiltert wird auf aktiv betreute Personen dieser Betreuungsperson.
+4.	Genau ein Treffer führt direkt zu B3.
+5.	Mehrere Treffer führen zur Liste B2.
+6.	Kein Treffer: Meldung "Niemand in der Nähe gefunden", darunter die Liste aller eigenen Betreuten nach Entfernung sortiert, mit Suchfeld.
+7.	Kein Standort verfügbar: gleiche Anzeige wie bei keinem Treffer, ohne Entfernung.
+Der Standort wird nicht gespeichert.
+B2 Liste.
+Spalten: Vorname, Nachname, letzter Besuch (Datum, Uhrzeit). Sortierung nach Entfernung. Ein Tipp führt zu B3.
+B3 Betreute Person.
+•	Beim Öffnen beginnt der Besuch (Zeitstempel). Beim Zurückgehen ohne Aktion wird er verworfen, wenn weniger als 60 Sekunden vergangen sind und nichts erfasst wurde.
+•	Kopfzeile, immer sichtbar: Name, Geburtsdatum, Allergien, wichtige Hinweise, Ansprechperson mit Anrufbutton.
+•	Reiter "Heute" (Standard): Tagesaufgaben. Ein Tipp auf eine Aufgabe setzt sie auf Erledigt. Ein zweiter Button "Nicht durchgeführt" verlangt einen kurzen Grund. Oberhalb: "Vorschläge prüfen (n)", wenn KI-Vorschläge warten.
+•	Reiter "Erledigt": bisher durchgeführte Aufgaben, neueste zuerst, auch die von Kollegen.
+•	Reiter "Info": Diagnosen, Medikationsplan, Zugangshinweise, Zuordnung.
+•	Fester Button unten: "Dokumentation".
+B4 Dokumentation.
+Großes Textfeld, Diktat über die Handy-Spracherkennung, Button "Foto", Button "Anhang". Beim Speichern: Hinweis "Bitte Text prüfen, besonders Medikamente und Zahlen", dann endgültiges Speichern. Der Besuch wird beendet. Die KI-Analyse startet im Hintergrund.
+B5 Vorschläge prüfen.
+Pro Vorschlag eine Karte: Titel, Belegstelle, zuständig (vorausgewählt: ich), fällig (vorausgewählt: nächster Besuch). Buttons: Aktivieren, Anpassen, Verwerfen. Es gibt kein "Alle aktivieren". Dringende Vorschläge stehen oben und sind markiert.
+4.5 Regeln für die KI
+•	Eingabe. Nur der Dokumentationstext, Besuchszeitpunkt und die Liste der erlaubten Aufgabenarten. Kein Name, keine Adresse, wenn sie nicht nötig ist.
+•	Ausgabe. Strukturiert nach festem Schema (siehe KI-Extrakt). Jeder Extrakt hat eine wörtliche Belegstelle aus dem Text. Extrakte ohne gültige Belegstelle werden vom System verworfen.
+•	Verbote. Keine Diagnose, keine Medikationsänderung, keine erfundenen Zahlen oder Dosierungen, keine Änderung an Stammdaten. Medikationshinweise werden nur zu Aufgaben vom Typ "Medikation klären".
+•	Zeitangaben. Relative Angaben ("morgen", "nächste Woche") löst das System gegen den Besuchszeitstempel auf, und der Rohtext bleibt erhalten. Der Mensch bestätigt.
+•	Dringlichkeit. Akute Hinweise (Sturz, Atemnot, Bewusstseinsveränderung) setzen den Vorschlag auf "dringend" und benachrichtigen die Pflegedienstleitung. Die App zeigt dauerhaft den Hinweis, dass sie keinen Notruf ersetzt.
+•	Zeitstempel und Akteure. Kommen ausschließlich aus dem Ereignisprotokoll, nie aus dem KI-Ergebnis.
+•	Fehlerfall. Bei Ausfall der KI bleibt die Dokumentation gespeichert, der Status steht auf "ausstehend", und die Analyse wird automatisch nachgeholt.
+•	Betrieb. Verarbeitung nur in der EU, Auftragsverarbeitungsvertrag, kein Training mit den Daten. Modell und Promptversion werden je Extrakt protokolliert.

@@ -1,0 +1,170 @@
+{
+  "QualifikationsartDialog.tsx": {
+    "bezeichnung": "z. B. Pflegefachkraft",
+    "beschreibung": "Was beschreibt diese Qualifikation?"
+  },
+  "PersonentypDialog.tsx": {
+    "bezeichnung": "z. B. Pflegefachkraft",
+    "beschreibung": "Was zeichnet diesen Typ aus?",
+    "erforderliche_qualifikationsarten": "Welche Qualifikationen?"
+  },
+  "PersonDialog.tsx": {
+    "vorname": "z. B. Anna",
+    "nachname": "z. B. Müller",
+    "personentyp": "Welcher Personentyp?",
+    "strasse": "z. B. Hauptstraße",
+    "hausnummer": "z. B. 12a",
+    "plz": "z. B. 10115",
+    "ort": "z. B. Berlin",
+    "land": "z. B. Deutschland",
+    "email": "z. B. anna@beispiel.de",
+    "benutzerkonto": "z. B. anna.mueller",
+    "aktiv_von": "Ab wann aktiv?",
+    "aktiv_bis": "Bis wann aktiv?",
+    "bemerkung": "Notizen zur Person"
+  },
+  "QualifikationEinerPersonDialog.tsx": {
+    "person": "Welche Person?",
+    "qualifikationsart": "Welche Qualifikation?",
+    "erworben_am": "Wann wurde sie erworben?",
+    "gueltig_bis": "Wie lange ist sie gültig?",
+    "geprueft_von": "Wer hat geprüft?",
+    "geprueft_am": "Wann wurde geprüft?"
+  },
+  "BetreutePersonDialog.tsx": {
+    "vorname": "z. B. Anna",
+    "nachname": "z. B. Müller",
+    "geburtsdatum": "Wann wurde die Person geboren?",
+    "strasse": "z. B. Lindenweg",
+    "hausnummer": "z. B. 12a",
+    "plz": "z. B. 80331",
+    "ort": "z. B. München",
+    "land": "z. B. Deutschland",
+    "einrichtung": "z. B. Haus Sonnenschein",
+    "zimmer": "z. B. Zimmer 14, Ost",
+    "zugangshinweise": "Wie kommt man hinein?",
+    "betreuungsbeginn": "Wann beginnt die Betreuung?",
+    "betreuungsende": "Wann endet die Betreuung?",
+    "allergien": "Welche Allergien bestehen?",
+    "wichtige_hinweise": "z. B. Sturzgefahr nachts",
+    "hausarzt": "Welcher Hausarzt?",
+    "ansprechperson": "Wer ist Ansprechperson?",
+    "beziehung_ansprechperson": "z. B. Tochter, Betreuer",
+    "ersatz_ansprechperson": "Wer ist die Vertretung?"
+  },
+  "DiagnoseDialog.tsx": {
+    "betreute_person": "Welche Person?",
+    "bezeichnung": "z. B. Diabetes mellitus Typ 2",
+    "icd_code": "z. B. E11.9",
+    "festgestellt_von": "Wer hat es festgestellt?",
+    "gueltig_ab": "Ab wann gilt sie?",
+    "gueltig_bis": "Bis wann gilt sie?",
+    "bemerkung": "Weitere Hinweise zur Diagnose"
+  },
+  "MedikationsplanDialog.tsx": {
+    "betreute_person": "Welche Person wird betreut?",
+    "medikament": "z. B. Ibuprofen 400",
+    "dosierung": "z. B. 1 Tablette",
+    "rhythmus": "z. B. morgens, abends",
+    "gueltig_ab": "Ab wann gilt der Plan?",
+    "gueltig_bis": "Bis wann gilt der Plan?",
+    "verordnet_von": "Wer hat es verordnet?",
+    "begruendung": "Warum wurde es geändert?"
+  },
+  "MassnahmePflegeplanDialog.tsx": {
+    "betreute_person": "Welche Person wird betreut?",
+    "bezeichnung": "z. B. Morgendliche Körperpflege",
+    "massnahmenart": "z. B. Körperpflege, Mobilisation",
+    "beschreibung": "Was ist zu tun?",
+    "intervall_tage": "z. B. 3",
+    "gueltig_ab": "Ab wann gilt die Maßnahme?",
+    "gueltig_bis": "Bis wann gilt die Maßnahme?",
+    "mindestqualifikation": "Welche Qualifikation nötig?",
+    "verordnet_von": "Wer hat es verordnet?"
+  },
+  "BesuchDialog.tsx": {
+    "betreute_person": "Welche Person wird betreut?",
+    "betreuungsperson": "Wer führt den Besuch durch?",
+    "beginn": "Wann beginnt der Besuch?",
+    "ende": "Wann endet der Besuch?",
+    "geraet": "z. B. iPhone 14"
+  },
+  "EreignisprotokollDialog.tsx": {
+    "zeitstempel": "Wann ist es passiert?",
+    "akteur": "Welche Person?",
+    "aktion": "z. B. Eintrag geändert",
+    "objekttyp": "z. B. Medikation",
+    "objekt_id": "z. B. 4711",
+    "betreute_person": "Welche betreute Person?",
+    "vorher_wert": "Wert vor der Änderung",
+    "nachher_wert": "Wert nach der Änderung",
+    "geraet": "z. B. Tablet Station 2"
+  },
+  "BetreuungszuordnungDialog.tsx": {
+    "vertretung_fuer": "Wen vertritt die Person?",
+    "betreute_person": "Welche Person wird betreut?",
+    "betreuungsperson": "Wer betreut?",
+    "gueltig_ab": "Ab wann gilt die Zuordnung?",
+    "gueltig_bis": "Bis wann gilt sie?",
+    "beauftragt_durch": "Wer hat beauftragt?",
+    "beauftragt_durch_organisation": "z. B. Caritas Pflegedienst",
+    "ausfall_von": "Wann beginnt der Ausfall?",
+    "ausfall_bis": "Wann endet der Ausfall?",
+    "bemerkung": "Hinweise zur Zuordnung",
+    "beauftragt_am": "Wann wurde beauftragt?"
+  },
+  "DokumentationDialog.tsx": {
+    "besuch": "Welcher Besuch?",
+    "betreute_person": "Welche Person wird betreut?",
+    "autor": "Wer schreibt den Eintrag?",
+    "text": "Was ist beim Besuch passiert?",
+    "gespeichert_am": "Wann wurde gespeichert?",
+    "erfasst_am": "Wann wurde erfasst?",
+    "ergaenzung_zu": "Welcher Eintrag wird ergänzt?"
+  },
+  "AnhangZurDokumentationDialog.tsx": {
+    "aufgenommen_am": "Wann wurde es aufgenommen?",
+    "aufgenommen_von": "Wer hat es aufgenommen?",
+    "beschriftung": "z. B. Wundfoto linker Arm",
+    "dokumentation": "Zu welcher Dokumentation?"
+  },
+  "KiExtraktDialog.tsx": {
+    "dokumentation": "Welche Dokumentation?",
+    "kategorie": "z. B. Entscheidung, Besorgung",
+    "inhalt": "z. B. Patient isst kaum",
+    "belegstelle": "Wörtliche Textstelle einfügen",
+    "belegstelle_position": "z. B. Absatz 2, Satz 1",
+    "zeitangabe_rohtext": "z. B. gestern Abend",
+    "zeitangabe_datum": "Welches Datum ist gemeint?",
+    "modellbezeichnung": "z. B. gpt-4o",
+    "promptversion": "z. B. v1.2"
+  },
+  "AufgabeDialog.tsx": {
+    "betreute_person": "Welche Person wird betreut?",
+    "titel": "z. B. Blutdruck messen",
+    "beschreibung": "Was ist zu tun?",
+    "aufgabenart": "z. B. Besorgung, Pflegemaßnahme",
+    "quelle_massnahme": "Welche Maßnahme?",
+    "zustaendig": "Wer ist zuständig?",
+    "faelligkeitsdatum": "Bis wann ist es fällig?",
+    "mindestqualifikation": "Welche Qualifikation?",
+    "status": "z. B. Offen, Erledigt",
+    "nicht_durchgefuehrt_grund": "z. B. Person nicht angetroffen",
+    "wartet_auf_person": "Auf wen wird gewartet?",
+    "verworfen_grund": "z. B. Nicht mehr nötig",
+    "ergebniskommentar": "Wie ist es gelaufen?",
+    "vorgeschlagen_am": "Wann wurde es vorgeschlagen?",
+    "vorgeschlagen_von": "Wer hat es vorgeschlagen?",
+    "aktiviert_am": "Wann wurde es aktiviert?",
+    "aktiviert_von": "Wer hat es aktiviert?",
+    "zugeordnet_am": "Wann wurde es zugeordnet?",
+    "zugeordnet_von": "Wer hat es zugeordnet?",
+    "begonnen_am": "Wann wurde begonnen?",
+    "begonnen_von": "Wer hat begonnen?",
+    "erledigt_am": "Wann wurde es erledigt?",
+    "erledigt_von": "Wer hat es erledigt?",
+    "verworfen_am": "Wann wurde es verworfen?",
+    "verworfen_von": "Wer hat es verworfen?",
+    "quelle_ki_extrakt": "Welcher KI-Extrakt?"
+  }
+}

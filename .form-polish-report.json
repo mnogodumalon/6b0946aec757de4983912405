@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "Qualifikationsart": {
+      "placeholders_set": 2,
+      "defaults_keys": [
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Reine Stammdaten ohne numerische Felder, daher keine Formeln."
+    },
+    "Personentyp": {
+      "placeholders_set": 3,
+      "defaults_keys": [
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da es sich um reine Stammdaten ohne numerische Felder oder Datumspaare handelt."
+    },
+    "Person": {
+      "placeholders_set": 13,
+      "defaults_keys": [
+        "aktiv_von",
+        "aktiv",
+        "land"
+      ],
+      "computed_keys": [],
+      "reason": "Stammdaten ohne numerische Kette, daher keine Formeln; die Dauer von aktiv_von bis aktiv_bis wird nicht benötigt, da kein Dauerfeld existiert."
+    },
+    "Qualifikation einer Person": {
+      "placeholders_set": 6,
+      "defaults_keys": [
+        "erworben_am"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da nur Datumsfelder und Verknüpfungen ohne numerische Berechnung vorliegen, und erworben_am und gueltig_bis kein Dauerfeld haben."
+    },
+    "Betreute Person": {
+      "placeholders_set": 19,
+      "defaults_keys": [
+        "betreuungsbeginn",
+        "status",
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Stammdaten ohne numerische Felder oder Preise, daher keine Formeln; Betreuungsende bleibt leer, da laufend."
+    },
+    "Diagnose": {
+      "placeholders_set": 7,
+      "defaults_keys": [
+        "gueltig_ab",
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da die Diagnose nur Stammdaten und ein Gültigkeitsdatum ohne numerische Berechnung enthält."
+    },
+    "Medikationsplan": {
+      "placeholders_set": 8,
+      "defaults_keys": [
+        "gueltig_ab",
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formel, da keine numerischen Felder oder Preise per applookup erreichbar sind und eine Gültigkeitsdauer hier nicht sinnvoll ist."
+    },
+    "Maßnahme (Pflegeplan)": {
+      "placeholders_set": 9,
+      "defaults_keys": [
+        "gueltig_ab",
+        "aktiv"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da keine Preis- oder Mengenfelder vorhanden sind und die Gültigkeit als Datumspaar keine Dauer-Zielfelder hat, die Maßnahme ist reine Stammdaten-Planung."
+    },
+    "Besuch": {
+      "placeholders_set": 5,
+      "defaults_keys": [
+        "beginn",
+        "status"
+      ],
+      "computed_keys": [
+        "_besuch_dauer_stunden"
+      ],
+      "reason": "Beginn und Ende bilden ein Datumspaar, daher wird die Besuchsdauer in Stunden als virtuelle Summenzeile berechnet; es gibt kein Preisfeld für weitere Formeln."
+    },
+    "Ereignisprotokoll": {
+      "placeholders_set": 9,
+      "defaults_keys": [
+        "zeitstempel",
+        "akteur_typ"
+      ],
+      "computed_keys": [],
+      "reason": "Protokoll ohne numerische Felder oder Datumspaare, daher keine Formeln."
+    },
+    "Betreuungszuordnung": {
+      "placeholders_set": 11,
+      "defaults_keys": [
+        "gueltig_ab",
+        "aktiv",
+        "beauftragt_am"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da keine numerischen Felder oder Preise vorhanden sind und Datumspaare keine Dauerfelder haben, die berechnet werden könnten."
+    },
+    "Dokumentation": {
+      "placeholders_set": 7,
+      "defaults_keys": [
+        "eingabeart",
+        "erfasst_am"
+      ],
+      "computed_keys": [],
+      "reason": "Dokumentation enthält keine numerischen Felder oder Datumspaare, daher keine Formeln; gespeichert_am ist kein Defaultfeld, da vom Server gesetzt."
+    },
+    "Anhang zur Dokumentation": {
+      "placeholders_set": 4,
+      "defaults_keys": [
+        "aufgenommen_am",
+        "typ"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da der Anhang reine Stammdaten ohne numerische Felder oder Datumspaar ist."
+    },
+    "KI-Extrakt": {
+      "placeholders_set": 9,
+      "defaults_keys": [
+        "status"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formeln, da der Extrakt nur Text-, Datums- und Auswahlfelder ohne numerische Berechnungsgrundlage enthält."
+    },
+    "Aufgabe": {
+      "placeholders_set": 26,
+      "defaults_keys": [
+        "status",
+        "prioritaet",
+        "herkunft"
+      ],
+      "computed_keys": [],
+      "reason": "Keine Formel, da es keine Zahlen- oder Datumspaare gibt, die berechnet werden könnten."
+    }
+  }
+}

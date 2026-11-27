@@ -1,0 +1,1066 @@
+# Scaffold key file contents — part 2/4.
+Same rule as .scaffold_context: these files are pre-generated; never Read the source files themselves.
+
+## src/services/livingAppsService.ts
+```
+// AUTOMATICALLY GENERATED SERVICE
+import { APP_IDS, LOOKUP_OPTIONS, FIELD_TYPES } from '@/types/app';
+import { ensureUploadableImage } from '@/lib/ai';
+import { REST_URL, restFetch } from '@/lib/origin';
+import { reportFailedWrite } from '@/lib/sentry';
+import type { Qualifikationsart, Personentyp, Person, QualifikationEinerPerson, BetreutePerson, Diagnose, Medikationsplan, MassnahmePflegeplan, Besuch, Ereignisprotokoll, Betreuungszuordnung, Dokumentation, AnhangZurDokumentation, KiExtrakt, Aufgabe, CreateQualifikationsart, CreatePersonentyp, CreatePerson, CreateQualifikationEinerPerson, CreateBetreutePerson, CreateDiagnose, CreateMedikationsplan, CreateMassnahmePflegeplan, CreateBesuch, CreateEreignisprotokoll, CreateBetreuungszuordnung, CreateDokumentation, CreateAnhangZurDokumentation, CreateKiExtrakt, CreateAufgabe } from '@/types/app';
+
+// Base Configuration — the host is a RUNTIME fact (lib/origin.ts):
+// a bundle copied to another LA instance must talk to THAT instance.
+const API_BASE_URL = REST_URL;
+
+// --- HELPER FUNCTIONS ---
+export function extractRecordId(url: unknown): string | null {
+  if (!url) return null;
+  if (typeof url !== 'string') return null;
+  const match = url.match(/([a-f0-9]{24})$/i);
+  return match ? match[1] : null;
+}
+
+// multipleapplookup form-state is Array<URL>. The MultiCombobox picker
+// works on record-ids; this helper maps a raw form value (which may be
+// undefined, null, a single URL string from a legacy single-Combobox
+// render, or the expected URL array) to a clean string[] of ids.
+export function extractRecordIds(urls: unknown): string[] {
+  if (!urls) return [];
+  const arr = Array.isArray(urls) ? urls : [urls];
+  const out: string[] = [];
+  for (const u of arr) {
+    const id = extractRecordId(u);
+    if (id) out.push(id);
+  }
+  return out;
+}
+
+export function createRecordUrl(appId: string, recordId: string): string {
+  return `${API_BASE_URL}/apps/${appId}/records/${recordId}`;
+}
+
+export class LivingAppsApiError extends Error {
+  status: number;
+  type?: string;
+  /** Stable error type identifier — the last path segment of `type`
+   *  (v1: `…/rest/v1/docs/errors/<id>`, e.g. `no_app_permission`). */
+  code?: string;
+  control_identifier?: string;
+  control_type?: string;
+  field_type?: string;
+  detail?: string;
+  constructor(message: string, status: number, raw?: Record<string, unknown>) {
+    super(message);
+    this.name = 'LivingAppsApiError';
+    this.status = status;
+    if (raw) {
+      this.type = typeof raw.type === 'string' ? raw.type : undefined;
+      this.code = this.type ? this.type.replace(/\/+$/, '').split('/').pop() : undefined;
+      this.control_identifier = typeof raw.control_identifier === 'string' ? raw.control_identifier : undefined;
+      this.control_type = typeof raw.control_type === 'string' ? raw.control_type : undefined;
+      this.field_type = typeof raw.field_type === 'string' ? raw.field_type : undefined;
+      this.detail = typeof raw.detail === 'string' ? raw.detail : undefined;
+    }
+  }
+}
+
+async function parseErrorBody(response: Response): Promise<{ message: string; raw?: Record<string, unknown> }> {
+  const text = await response.text();
+  if (!text) return { message: `HTTP ${response.status}` };
+  try {
+    const raw = JSON.parse(text);
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>;
+      const message = typeof obj.detail === 'string' ? obj.detail
+        : typeof obj.title === 'string' ? obj.title
+        : text;
+      return { message, raw: obj };
+    }
+  } catch { /* fall through to text */ }
+  return { message: text };
+}
+
+export interface CallApiOptions {
+  /** Skip errorbus dispatch for expected failures (e.g. optional-param 404s). */
+  silent?: boolean;
+  /** Abort the request (a keystroke replacing the previous search). */
+  signal?: AbortSignal;
+}
+
+/** Query options of GET /apps/{id}/records — filter/orderby are vSQL (see the journey layer's
+ *  buildSearchFilter; never concatenate user input into them yourself). */
+export interface RecordQuery {
+  filter?: string;
+  orderby?: string[];
+  limit?: number;
+  offset?: number;
+  /** Field projection (`field=` repeated). The record's `fields` then holds ONLY these keys. */
+  fields?: string[];
+  signal?: AbortSignal;
+  /** A read a display surface repeats (polling, a live board): a network failure
+ *  is no toast — the surface keeps its last state and says it is stale (S-9). */
+  silent?: boolean;
+}
+// URLSearchParams encodes spaces as `+` — the API accepts it (verified live
+// 2026-09-02: orderby=r.v_nachname+asc → 200, sorted; filter with + → 200).
+export function recordQueryString(q: RecordQuery): string {
+  const p = new URLSearchParams();
+  if (q.filter) p.set('filter', q.filter);
+  for (const o of q.orderby ?? []) p.append('orderby', o);
+  for (const f of q.fields ?? []) p.append('field', f);
+  if (q.limit !== undefined) p.set('limit', String(Math.max(1, Math.floor(q.limit))));
+  if (q.offset !== undefined) p.set('offset', String(Math.max(0, Math.floor(q.offset))));
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+/** `[[n]]` from aggregate_records?value=count() -> n; `[]` -> 0; anything else -> 0 (never NaN). */
+export function parseAggregateCount(data: unknown): number {
+  if (!Array.isArray(data)) return 0;
+  if (data.length === 0) return 0;
+  const first = data[0];
+  const n = Array.isArray(first) ? Number(first[0]) : Number(first);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** What the create and update helpers resolve to. Same `record_id`
+ *  the read helpers expose, so the whole family behaves alike — the
+ *  raw REST answer only
+ *  carries `id`, and code that guessed (e.g. Object.keys(res)[0]) built
+ *  `/records/id` and got a 400 on the next write. */
+export interface MutationResult {
+  record_id: string;
+  id: string;
+  fields: Record<string, any>;
+  [key: string]: any;
+}
+
+/** The entity (APP_IDS key, lower case) a REST endpoint writes to — for the
+ *  failed-write report, which names the entity, never the record. */
+function entityOfEndpoint(endpoint: string): string | undefined {
+  const m = /\/apps\/([a-f0-9]{24})/.exec(endpoint);
+  if (!m) return undefined;
+  return (Object.keys(APP_IDS) as (keyof typeof APP_IDS)[]).find(k => APP_IDS[k] === m[1])?.toLowerCase();
+}
+
+async function callApi(method: string, endpoint: string, data?: any, options?: CallApiOptions) {
+  const silent = options?.silent === true;
+  let response: Response;
+  try {
+    response = await restFetch(`${API_BASE_URL}${endpoint}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',  // Nutze Session Cookies für Auth
+      signal: options?.signal,
+      body: data ? JSON.stringify(data) : undefined
+    });
+  } catch (netErr) {
+    // A search the user typed past is cancelled, not broken — it must not
+    // raise an error toast on its way out.
+    if (netErr instanceof Error && netErr.name === 'AbortError') throw netErr;
+    const message = netErr instanceof Error ? netErr.message : String(netErr);
+    if (!silent) {
+      window.dispatchEvent(new CustomEvent('errorbus:emit', { detail: {
+        source: 'network', message, status: 0,
+      } }));
+    }
+    if (method !== 'GET') reportFailedWrite({ method, status: 0, entity: entityOfEndpoint(endpoint) });
+    throw netErr;
+  }
+  if (!response.ok) {
+    // 401 = not signed in → the login screen, never the errorbus (repair can't fix auth).
+    // 403 = signed in, but this list is not theirs to read or write: a notice,
+    // the page stays (05.10.2026 — it used to say „not logged in“ and blank everything).
+    const isAuthError = response.status === 401;
+    if (isAuthError) window.dispatchEvent(new Event('auth-error'));
+    const { message, raw } = await parseErrorBody(response);
+    const err = new LivingAppsApiError(message, response.status, raw);
+    if (!silent && !isAuthError) {
+      window.dispatchEvent(new CustomEvent('errorbus:emit', { detail: {
+        source: 'api',
+        status: err.status,
+        type: err.type,
+        control_identifier: err.control_identifier,
+        control_type: err.control_type,
+        field_type: err.field_type,
+        detail: err.detail,
+        message: err.message,
+      } }));
+    }
+    // A refused write goes to Sentry as well as to the toast: the user sees it,
+    // now we do too (27.10.2026 — not one failed save had ever reached Sentry).
+    if (method !== 'GET') {
+      reportFailedWrite({ method, status: err.status, code: err.code, field: err.control_identifier, entity: entityOfEndpoint(endpoint) });
+    }
+    throw err;
+  }
+  // DELETE returns often empty body or simple status
+  if (method === 'DELETE') return true;
+  return response.json();
+}
+
+/** Upload a file to LivingApps. Returns the file URL for use in record fields. */
+export async function uploadFile(file: File | Blob, filename?: string): Promise<string> {
+  // HEIC/HEIF (iPhone photos) crash the server-side image decoder (500).
+  // Convert to JPEG in the browser BEFORE upload — every upload path routes
+  // through here, so this one guard covers form fields AND attachments.
+  if (file instanceof File) file = await ensureUploadableImage(file);
+  const formData = new FormData();
+  formData.append('file', file, filename ?? (file instanceof File ? file.name : 'upload'));
+  const res = await restFetch(`${API_BASE_URL}/files`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event('auth-error'));
+    else if (res.status === 403) window.dispatchEvent(new CustomEvent('errorbus:emit', { detail: {
+      source: 'api', status: 403, message: 'File upload failed: 403',
+    } }));
+    throw new Error(`File upload failed: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.url;
+}
+
+// --- ATTACHMENT API ---
+// Record-attachments: file/note/url/json blobs attached to a single record.
+// `getAttachments` returns a dict keyed by attachment id; we flatten to an array.
+export async function getRecordAttachments(appId: string, recordId: string) {
+  const data = await callApi('GET', `/apps/${appId}/records/${recordId}/attachments`, undefined, { silent: true }).catch(() => ({}));
+  if (!data || typeof data !== 'object') return [] as import('@/types/app').Attachment[];
+  return Object.entries(data).map(([id, att]) => ({ id, ...(att as Record<string, unknown>) })) as import('@/types/app').Attachment[];
+}
+
+export async function createRecordAttachment(appId: string, recordId: string, input: import('@/types/app').AttachmentInput) {
+  return callApi('POST', `/apps/${appId}/records/${recordId}/attachments`, input) as Promise<import('@/types/app').Attachment>;
+}
+
+export async function updateRecordAttachment(appId: string, recordId: string, attachmentId: string, input: Partial<import('@/types/app').AttachmentInput>) {
+  return callApi('PATCH', `/apps/${appId}/records/${recordId}/attachments/${attachmentId}`, input) as Promise<import('@/types/app').Attachment>;
+}
+
+export async function deleteRecordAttachment(appId: string, recordId: string, attachmentId: string) {
+  return callApi('DELETE', `/apps/${appId}/records/${recordId}/attachments/${attachmentId}`);
+}
+
+function enrichLookupFields<T extends { fields: Record<string, unknown> }>(
+  records: T[], entityKey: string
+): T[] {
+  const opts = LOOKUP_OPTIONS[entityKey];
+  if (!opts) return records;
+  return records.map(r => {
+    const fields = { ...r.fields };
+    for (const [fieldKey, options] of Object.entries(opts)) {
+      const val = fields[fieldKey];
+      if (typeof val === 'string') {
+        const m = options.find(o => o.key === val);
+        fields[fieldKey] = m ?? { key: val, label: val };
+      } else if (Array.isArray(val)) {
+        fields[fieldKey] = val.map(v => {
+          if (typeof v === 'string') {
+            const m = options.find(o => o.key === v);
+            return m ?? { key: v, label: v };
+          }
+          return v;
+        });
+      }
+    }
+    return { ...r, fields } as T;
+  });
+}
+
+/** A textarea that HOLDS A LIST but was typed on one line.
+ *
+ *  Rendering such a field as tiles/bullets is the natural thing to do, and
+ *  the natural way to write it is `value.split('\n')` — one item per line
+ *  is the convention every form implies. Owners type differently though:
+ *  a live landing page collapsed five services into ONE tile because the
+ *  record held 'Tagesbetreuung, Übernachtung, …' without a single line
+ *  break. Normalizing HERE makes that natural split correct whatever was
+ *  typed, instead of asking every page to re-derive the heuristic.
+ *
+ *  Deliberately conservative — prose must survive untouched:
+ *    · already has line breaks  → left alone (the author's own structure)
+ *    · ; • · |                  → unambiguous separators, 2 parts suffice
+ *    · commas                   → only with 3+ parts that all read like
+ *                                 labels: short, at most four words, no
+ *                                 sentence punctuation. A prose clause like
+ *                                 "Katzen und Kleintiere aller Rassen" is
+ *                                 short enough but not wordy-short.
+ *  Anything else stays as it is, so a wrong guess degrades to today's
+ *  behaviour (one item), never to mangled prose. */
+const LIST_LABEL_MAX = 40;
+const LIST_LABEL_MAX_WORDS = 4;
+function listTextToLines(text: string): string {
+  if (!text || /\r?\n/.test(text)) return text;
+  const bulleted = text.split(/\s*[;•·|]\s*/).map(s => s.trim()).filter(Boolean);
+  if (bulleted.length >= 2) return bulleted.join('\n');
+  const parts = text.split(/\s*,\s*/).map(s => s.trim()).filter(Boolean);
+  const looksLikeLabels = parts.length >= 3 && parts.every(p =>
+    p.length <= LIST_LABEL_MAX
+    && p.split(/\s+/).length <= LIST_LABEL_MAX_WORDS
+    && !/[.!?:]$/.test(p));
+  return looksLikeLabels ? parts.join('\n') : text;
+}
+
+function normalizeListTextareas<T extends { fields: Record<string, unknown> }>(
+  records: T[], entityKey: string
+): T[] {
+  const types = FIELD_TYPES[entityKey];
+  if (!types) return records;
+  const areas = Object.keys(types).filter(k => types[k] === 'string/textarea');
+  if (areas.length === 0) return records;
+  return records.map(r => {
+    let touched = false;
+    const fields = { ...r.fields };
+    for (const key of areas) {
+      const val = fields[key];
+      if (typeof val !== 'string') continue;
+      const next = listTextToLines(val);
+      if (next !== val) { fields[key] = next; touched = true; }
+    }
+    return touched ? ({ ...r, fields } as T) : r;
+  });
+}
+
+/** The one post-processing step every READ goes through: lookup objects
+ *  attached, list-ish textareas line-broken. Read helpers call this, not
+ *  the individual passes. */
+function hydrateRecords<T extends { fields: Record<string, unknown> }>(
+  records: T[], entityKey: string
+): T[] {
+  return normalizeListTextareas(enrichLookupFields(records, entityKey), entityKey);
+}
+
+/** Normalize fields for API writes: strip lookup objects to keys, fix date formats. */
+export function cleanFieldsForApi(
+  fields: Record<string, unknown>,
+  entityKey: string
+): Record<string, unknown> {
+  const clean: Record<string, unknown> = { ...fields };
+  // Strip virtual / unknown keys before they hit the API. Sub-agent invents
+  // computed-only keys (e.g. `_netto`, `_bestellung_gesamtbetrag`) for the
+  // 'Berechnungen' display, and a leaky submit-backfill would otherwise send
+  // them to the Living-Apps backend which rejects with 'field does not exist'.
+  const known = FIELD_TYPES[entityKey];
+  if (known) {
+    for (const k of Object.keys(clean)) {
+      if (!(k in known)) delete clean[k];
+    }
+  }
+  for (const [k, v] of Object.entries(clean)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'key' in v) clean[k] = (v as any).key;
+    if (Array.isArray(v)) clean[k] = v.map((item: any) => item && typeof item === 'object' && 'key' in item ? item.key : item);
+  }
+  const types = FIELD_TYPES[entityKey];
+  if (types) {
+    for (const [k, ft] of Object.entries(types)) {
+      if (!(k in clean)) continue;
+      const val = clean[k];
+      // applookup fields: undefined → null (clear single reference)
+      if ((ft === 'applookup/select' || ft === 'applookup/choice') && val === undefined) { clean[k] = null; continue; }
+      // multipleapplookup fields: undefined/null → [] (clear multi reference)
+      if ((ft === 'multipleapplookup/select' || ft === 'multipleapplookup/choice') && (val === undefined || val === null)) { clean[k] = []; continue; }
+      // lookup fields: undefined → null (clear single lookup)
+      if ((ft.startsWith('lookup/')) && val === undefined) { clean[k] = null; continue; }
+      // multiplelookup fields: undefined/null → [] (clear multi lookup)
+      if ((ft.startsWith('multiplelookup/')) && (val === undefined || val === null)) { clean[k] = []; continue; }
+      if (typeof val !== 'string' || !val) continue;
+      if (ft === 'date/datetimeminute') clean[k] = val.slice(0, 16);
+      else if (ft === 'date/date') clean[k] = val.slice(0, 10);
+    }
+  }
+  return clean;
+}
+
+let _cachedUserProfile: Record<string, unknown> | null = null;
+
+export async function getUserProfile(): Promise<Record<string, unknown>> {
+  if (_cachedUserProfile) return _cachedUserProfile;
+  const raw = await callApi('GET', '/user');
+  const skip = new Set(['id', 'image', 'lang', 'gender', 'title', 'fax', 'menus', 'initials']);
+  const data: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v != null && !skip.has(k)) data[k] = v;
+  }
+  _cachedUserProfile = data;
+  return data;
+}
+
+export interface HeaderProfile {
+  firstname: string;
+  surname: string;
+  email: string;
+  image: string | null;
+  company: string | null;
+}
+
+let _cachedHeaderProfile: HeaderProfile | null = null;
+
+export async function getHeaderProfile(): Promise<HeaderProfile> {
+  if (_cachedHeaderProfile) return _cachedHeaderProfile;
+  const raw = await callApi('GET', '/user');
+  _cachedHeaderProfile = {
+    firstname: raw.firstname ?? '',
+    surname: raw.surname ?? '',
+    email: raw.email ?? '',
+    image: raw.image ?? null,
+    company: raw.company ?? null,
+  };
+  return _cachedHeaderProfile;
+}
+
+export interface AppGroupInfo {
+  id: string;
+  name: string;
+  image: string | null;
+  createdat: string;
+  /** Resolved link: /objects/{id}/ if the dashboard exists, otherwise /gateway/apps/{firstAppId}?template=list_page */
+  href: string;
+}
+
+let _cachedAppGroups: AppGroupInfo[] | null = null;
+
+export async function getAppGroups(): Promise<AppGroupInfo[]> {
+  if (_cachedAppGroups) return _cachedAppGroups;
+  const raw = await callApi('GET', '/appgroups?with=apps');
+  const groups: AppGroupInfo[] = Object.values(raw)
+    .map((g: any) => {
+      const firstAppId = Object.keys(g.apps ?? {})[0] ?? g.id;
+      return {
+        id: g.id,
+        name: g.name,
+        image: g.image ?? null,
+        // API field is created_at (snake_case) — the old camelCase read
+        // left every group '', silently disabling the newest-first sort.
+        createdat: g.created_at ?? g.createdat ?? '',
+        href: `/gateway/apps/${firstAppId}?template=list_page`,
+        _firstAppId: firstAppId,
+      };
+    })
+    .sort((a, b) => b.createdat.localeCompare(a.createdat));
+
+  // Check which appgroups have a deployed dashboard via app params
+  const paramChecks = await Promise.allSettled(
+    groups.map(g => callApi('GET', `/apps/${(g as any)._firstAppId}/params/la_page_header_additional_url`, undefined, { silent: true }))
+  );
+  paramChecks.forEach((result, i) => {
+    if (result.status !== 'fulfilled' || !result.value) return;
+    const url = result.value.value;
+    if (typeof url === 'string' && url.length > 0) {
+      try { groups[i].href = new URL(url).pathname; } catch { groups[i].href = url; }
+    }
+  });
+
+  // Clean up internal helper property
+  groups.forEach(g => delete (g as any)._firstAppId);
+
+  _cachedAppGroups = groups;
+  return _cachedAppGroups;
+}
+
+export class LivingAppsService {
+  // --- QUALIFIKATIONSART ---
+  static async getQualifikationsart(): Promise<Qualifikationsart[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATIONSART}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Qualifikationsart[];
+    return hydrateRecords(records, 'qualifikationsart');
+  }
+  static async queryQualifikationsart(q: RecordQuery = {}): Promise<Qualifikationsart[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATIONSART}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Qualifikationsart[];
+    return hydrateRecords(records, 'qualifikationsart');
+  }
+  static async countQualifikationsart(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATIONSART}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getQualifikationsartEntry(id: string): Promise<Qualifikationsart | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATIONSART}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Qualifikationsart;
+    return hydrateRecords([record], 'qualifikationsart')[0];
+  }
+  static async createQualifikationsartEntry(fields: CreateQualifikationsart): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.QUALIFIKATIONSART}/records`, { fields: cleanFieldsForApi(fields as any, 'qualifikationsart') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateQualifikationsartEntry(id: string, fields: Partial<CreateQualifikationsart>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.QUALIFIKATIONSART}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'qualifikationsart') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteQualifikationsartEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.QUALIFIKATIONSART}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('qualifikationsart', id)).catch(() => {});
+    return out;
+  }
+
+  // --- PERSONENTYP ---
+  static async getPersonentyp(): Promise<Personentyp[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSONENTYP}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Personentyp[];
+    return hydrateRecords(records, 'personentyp');
+  }
+  static async queryPersonentyp(q: RecordQuery = {}): Promise<Personentyp[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSONENTYP}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Personentyp[];
+    return hydrateRecords(records, 'personentyp');
+  }
+  static async countPersonentyp(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSONENTYP}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getPersonentypEntry(id: string): Promise<Personentyp | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSONENTYP}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Personentyp;
+    return hydrateRecords([record], 'personentyp')[0];
+  }
+  static async createPersonentypEntry(fields: CreatePersonentyp): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.PERSONENTYP}/records`, { fields: cleanFieldsForApi(fields as any, 'personentyp') });
+    return { ...data, record_id: data.id };
+  }
+  static async updatePersonentypEntry(id: string, fields: Partial<CreatePersonentyp>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.PERSONENTYP}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'personentyp') });
+    return { ...data, record_id: data.id };
+  }
+  static async deletePersonentypEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.PERSONENTYP}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('personentyp', id)).catch(() => {});
+    return out;
+  }
+
+  // --- PERSON ---
+  static async getPerson(): Promise<Person[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSON}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Person[];
+    return hydrateRecords(records, 'person');
+  }
+  static async queryPerson(q: RecordQuery = {}): Promise<Person[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSON}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Person[];
+    return hydrateRecords(records, 'person');
+  }
+  static async countPerson(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSON}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getPersonEntry(id: string): Promise<Person | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.PERSON}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Person;
+    return hydrateRecords([record], 'person')[0];
+  }
+  static async createPersonEntry(fields: CreatePerson): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.PERSON}/records`, { fields: cleanFieldsForApi(fields as any, 'person') });
+    return { ...data, record_id: data.id };
+  }
+  static async updatePersonEntry(id: string, fields: Partial<CreatePerson>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.PERSON}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'person') });
+    return { ...data, record_id: data.id };
+  }
+  static async deletePersonEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.PERSON}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('person', id)).catch(() => {});
+    return out;
+  }
+
+  // --- QUALIFIKATION_EINER_PERSON ---
+  static async getQualifikationEinerPerson(): Promise<QualifikationEinerPerson[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as QualifikationEinerPerson[];
+    return hydrateRecords(records, 'qualifikation_einer_person');
+  }
+  static async queryQualifikationEinerPerson(q: RecordQuery = {}): Promise<QualifikationEinerPerson[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as QualifikationEinerPerson[];
+    return hydrateRecords(records, 'qualifikation_einer_person');
+  }
+  static async countQualifikationEinerPerson(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getQualifikationEinerPersonEntry(id: string): Promise<QualifikationEinerPerson | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as QualifikationEinerPerson;
+    return hydrateRecords([record], 'qualifikation_einer_person')[0];
+  }
+  static async createQualifikationEinerPersonEntry(fields: CreateQualifikationEinerPerson): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records`, { fields: cleanFieldsForApi(fields as any, 'qualifikation_einer_person') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateQualifikationEinerPersonEntry(id: string, fields: Partial<CreateQualifikationEinerPerson>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'qualifikation_einer_person') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteQualifikationEinerPersonEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.QUALIFIKATION_EINER_PERSON}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('qualifikation_einer_person', id)).catch(() => {});
+    return out;
+  }
+
+  // --- BETREUTE_PERSON ---
+  static async getBetreutePerson(): Promise<BetreutePerson[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUTE_PERSON}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as BetreutePerson[];
+    return hydrateRecords(records, 'betreute_person');
+  }
+  static async queryBetreutePerson(q: RecordQuery = {}): Promise<BetreutePerson[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUTE_PERSON}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as BetreutePerson[];
+    return hydrateRecords(records, 'betreute_person');
+  }
+  static async countBetreutePerson(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUTE_PERSON}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getBetreutePersonEntry(id: string): Promise<BetreutePerson | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUTE_PERSON}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as BetreutePerson;
+    return hydrateRecords([record], 'betreute_person')[0];
+  }
+  static async createBetreutePersonEntry(fields: CreateBetreutePerson): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.BETREUTE_PERSON}/records`, { fields: cleanFieldsForApi(fields as any, 'betreute_person') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateBetreutePersonEntry(id: string, fields: Partial<CreateBetreutePerson>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.BETREUTE_PERSON}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'betreute_person') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteBetreutePersonEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.BETREUTE_PERSON}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('betreute_person', id)).catch(() => {});
+    return out;
+  }
+
+  // --- DIAGNOSE ---
+  static async getDiagnose(): Promise<Diagnose[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DIAGNOSE}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Diagnose[];
+    return hydrateRecords(records, 'diagnose');
+  }
+  static async queryDiagnose(q: RecordQuery = {}): Promise<Diagnose[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DIAGNOSE}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Diagnose[];
+    return hydrateRecords(records, 'diagnose');
+  }
+  static async countDiagnose(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DIAGNOSE}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getDiagnoseEntry(id: string): Promise<Diagnose | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DIAGNOSE}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Diagnose;
+    return hydrateRecords([record], 'diagnose')[0];
+  }
+  static async createDiagnoseEntry(fields: CreateDiagnose): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.DIAGNOSE}/records`, { fields: cleanFieldsForApi(fields as any, 'diagnose') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateDiagnoseEntry(id: string, fields: Partial<CreateDiagnose>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.DIAGNOSE}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'diagnose') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteDiagnoseEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.DIAGNOSE}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('diagnose', id)).catch(() => {});
+    return out;
+  }
+
+  // --- MEDIKATIONSPLAN ---
+  static async getMedikationsplan(): Promise<Medikationsplan[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Medikationsplan[];
+    return hydrateRecords(records, 'medikationsplan');
+  }
+  static async queryMedikationsplan(q: RecordQuery = {}): Promise<Medikationsplan[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Medikationsplan[];
+    return hydrateRecords(records, 'medikationsplan');
+  }
+  static async countMedikationsplan(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MEDIKATIONSPLAN}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getMedikationsplanEntry(id: string): Promise<Medikationsplan | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Medikationsplan;
+    return hydrateRecords([record], 'medikationsplan')[0];
+  }
+  static async createMedikationsplanEntry(fields: CreateMedikationsplan): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records`, { fields: cleanFieldsForApi(fields as any, 'medikationsplan') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateMedikationsplanEntry(id: string, fields: Partial<CreateMedikationsplan>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'medikationsplan') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteMedikationsplanEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.MEDIKATIONSPLAN}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('medikationsplan', id)).catch(() => {});
+    return out;
+  }
+
+  // --- MASSNAHME_(PFLEGEPLAN) ---
+  static async getMassnahmePflegeplan(): Promise<MassnahmePflegeplan[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as MassnahmePflegeplan[];
+    return hydrateRecords(records, 'massnahme_(pflegeplan)');
+  }
+  static async queryMassnahmePflegeplan(q: RecordQuery = {}): Promise<MassnahmePflegeplan[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as MassnahmePflegeplan[];
+    return hydrateRecords(records, 'massnahme_(pflegeplan)');
+  }
+  static async countMassnahmePflegeplan(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getMassnahmePflegeplanEntry(id: string): Promise<MassnahmePflegeplan | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as MassnahmePflegeplan;
+    return hydrateRecords([record], 'massnahme_(pflegeplan)')[0];
+  }
+  static async createMassnahmePflegeplanEntry(fields: CreateMassnahmePflegeplan): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records`, { fields: cleanFieldsForApi(fields as any, 'massnahme_(pflegeplan)') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateMassnahmePflegeplanEntry(id: string, fields: Partial<CreateMassnahmePflegeplan>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'massnahme_(pflegeplan)') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteMassnahmePflegeplanEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.MASSNAHME_PFLEGEPLAN}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('massnahme_(pflegeplan)', id)).catch(() => {});
+    return out;
+  }
+
+  // --- BESUCH ---
+  static async getBesuch(): Promise<Besuch[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BESUCH}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Besuch[];
+    return hydrateRecords(records, 'besuch');
+  }
+  static async queryBesuch(q: RecordQuery = {}): Promise<Besuch[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BESUCH}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Besuch[];
+    return hydrateRecords(records, 'besuch');
+  }
+  static async countBesuch(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BESUCH}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getBesuchEntry(id: string): Promise<Besuch | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BESUCH}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Besuch;
+    return hydrateRecords([record], 'besuch')[0];
+  }
+  static async createBesuchEntry(fields: CreateBesuch): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.BESUCH}/records`, { fields: cleanFieldsForApi(fields as any, 'besuch') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateBesuchEntry(id: string, fields: Partial<CreateBesuch>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.BESUCH}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'besuch') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteBesuchEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.BESUCH}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('besuch', id)).catch(() => {});
+    return out;
+  }
+
+  // --- EREIGNISPROTOKOLL ---
+  static async getEreignisprotokoll(): Promise<Ereignisprotokoll[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Ereignisprotokoll[];
+    return hydrateRecords(records, 'ereignisprotokoll');
+  }
+  static async queryEreignisprotokoll(q: RecordQuery = {}): Promise<Ereignisprotokoll[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Ereignisprotokoll[];
+    return hydrateRecords(records, 'ereignisprotokoll');
+  }
+  static async countEreignisprotokoll(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getEreignisprotokollEntry(id: string): Promise<Ereignisprotokoll | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Ereignisprotokoll;
+    return hydrateRecords([record], 'ereignisprotokoll')[0];
+  }
+  static async createEreignisprotokollEntry(fields: CreateEreignisprotokoll): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records`, { fields: cleanFieldsForApi(fields as any, 'ereignisprotokoll') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateEreignisprotokollEntry(id: string, fields: Partial<CreateEreignisprotokoll>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'ereignisprotokoll') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteEreignisprotokollEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.EREIGNISPROTOKOLL}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('ereignisprotokoll', id)).catch(() => {});
+    return out;
+  }
+
+  // --- BETREUUNGSZUORDNUNG ---
+  static async getBetreuungszuordnung(): Promise<Betreuungszuordnung[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Betreuungszuordnung[];
+    return hydrateRecords(records, 'betreuungszuordnung');
+  }
+  static async queryBetreuungszuordnung(q: RecordQuery = {}): Promise<Betreuungszuordnung[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Betreuungszuordnung[];
+    return hydrateRecords(records, 'betreuungszuordnung');
+  }
+  static async countBetreuungszuordnung(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getBetreuungszuordnungEntry(id: string): Promise<Betreuungszuordnung | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Betreuungszuordnung;
+    return hydrateRecords([record], 'betreuungszuordnung')[0];
+  }
+  static async createBetreuungszuordnungEntry(fields: CreateBetreuungszuordnung): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records`, { fields: cleanFieldsForApi(fields as any, 'betreuungszuordnung') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateBetreuungszuordnungEntry(id: string, fields: Partial<CreateBetreuungszuordnung>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'betreuungszuordnung') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteBetreuungszuordnungEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.BETREUUNGSZUORDNUNG}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('betreuungszuordnung', id)).catch(() => {});
+    return out;
+  }
+
+  // --- DOKUMENTATION ---
+  static async getDokumentation(): Promise<Dokumentation[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOKUMENTATION}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Dokumentation[];
+    return hydrateRecords(records, 'dokumentation');
+  }
+  static async queryDokumentation(q: RecordQuery = {}): Promise<Dokumentation[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOKUMENTATION}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Dokumentation[];
+    return hydrateRecords(records, 'dokumentation');
+  }
+  static async countDokumentation(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOKUMENTATION}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getDokumentationEntry(id: string): Promise<Dokumentation | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.DOKUMENTATION}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Dokumentation;
+    return hydrateRecords([record], 'dokumentation')[0];
+  }
+  static async createDokumentationEntry(fields: CreateDokumentation): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.DOKUMENTATION}/records`, { fields: cleanFieldsForApi(fields as any, 'dokumentation') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateDokumentationEntry(id: string, fields: Partial<CreateDokumentation>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.DOKUMENTATION}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'dokumentation') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteDokumentationEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.DOKUMENTATION}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('dokumentation', id)).catch(() => {});
+    return out;
+  }
+
+  // --- ANHANG_ZUR_DOKUMENTATION ---
+  static async getAnhangZurDokumentation(): Promise<AnhangZurDokumentation[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as AnhangZurDokumentation[];
+    return hydrateRecords(records, 'anhang_zur_dokumentation');
+  }
+  static async queryAnhangZurDokumentation(q: RecordQuery = {}): Promise<AnhangZurDokumentation[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as AnhangZurDokumentation[];
+    return hydrateRecords(records, 'anhang_zur_dokumentation');
+  }
+  static async countAnhangZurDokumentation(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getAnhangZurDokumentationEntry(id: string): Promise<AnhangZurDokumentation | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as AnhangZurDokumentation;
+    return hydrateRecords([record], 'anhang_zur_dokumentation')[0];
+  }
+  static async createAnhangZurDokumentationEntry(fields: CreateAnhangZurDokumentation): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records`, { fields: cleanFieldsForApi(fields as any, 'anhang_zur_dokumentation') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateAnhangZurDokumentationEntry(id: string, fields: Partial<CreateAnhangZurDokumentation>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'anhang_zur_dokumentation') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteAnhangZurDokumentationEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.ANHANG_ZUR_DOKUMENTATION}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('anhang_zur_dokumentation', id)).catch(() => {});
+    return out;
+  }
+
+  // --- KI_EXTRAKT ---
+  static async getKiExtrakt(): Promise<KiExtrakt[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KI_EXTRAKT}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as KiExtrakt[];
+    return hydrateRecords(records, 'ki_extrakt');
+  }
+  static async queryKiExtrakt(q: RecordQuery = {}): Promise<KiExtrakt[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KI_EXTRAKT}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as KiExtrakt[];
+    return hydrateRecords(records, 'ki_extrakt');
+  }
+  static async countKiExtrakt(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KI_EXTRAKT}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getKiExtraktEntry(id: string): Promise<KiExtrakt | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.KI_EXTRAKT}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as KiExtrakt;
+    return hydrateRecords([record], 'ki_extrakt')[0];
+  }
+  static async createKiExtraktEntry(fields: CreateKiExtrakt): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.KI_EXTRAKT}/records`, { fields: cleanFieldsForApi(fields as any, 'ki_extrakt') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateKiExtraktEntry(id: string, fields: Partial<CreateKiExtrakt>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.KI_EXTRAKT}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'ki_extrakt') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteKiExtraktEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.KI_EXTRAKT}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('ki_extrakt', id)).catch(() => {});
+    return out;
+  }
+
+  // --- AUFGABE ---
+  static async getAufgabe(): Promise<Aufgabe[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.AUFGABE}/records`);
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Aufgabe[];
+    return hydrateRecords(records, 'aufgabe');
+  }
+  static async queryAufgabe(q: RecordQuery = {}): Promise<Aufgabe[]> {
+    const data = await callApi('GET', `/apps/${APP_IDS.AUFGABE}/records${recordQueryString(q)}`, undefined, { signal: q.signal, silent: q.silent });
+    const records = Object.entries(data).map(([id, rec]: [string, any]) => ({
+      record_id: id, ...rec,
+      createdat: rec.created_at ?? '', updatedat: rec.updated_at ?? null,
+    })) as Aufgabe[];
+    return hydrateRecords(records, 'aufgabe');
+  }
+  static async countAufgabe(filter?: string, signal?: AbortSignal): Promise<number> {
+    const data = await callApi('GET', `/apps/${APP_IDS.AUFGABE}/aggregate_records${recordQueryString({ filter })}${filter ? '&' : '?'}value=count()`, undefined, { signal, silent: true });
+    return parseAggregateCount(data);
+  }
+  static async getAufgabeEntry(id: string): Promise<Aufgabe | undefined> {
+    const data = await callApi('GET', `/apps/${APP_IDS.AUFGABE}/records/${id}`);
+    const record = { record_id: data.id, ...data, createdat: data.created_at ?? '', updatedat: data.updated_at ?? null } as Aufgabe;
+    return hydrateRecords([record], 'aufgabe')[0];
+  }
+  static async createAufgabeEntry(fields: CreateAufgabe): Promise<MutationResult> {
+    const data = await callApi('POST', `/apps/${APP_IDS.AUFGABE}/records`, { fields: cleanFieldsForApi(fields as any, 'aufgabe') });
+    return { ...data, record_id: data.id };
+  }
+  static async updateAufgabeEntry(id: string, fields: Partial<CreateAufgabe>): Promise<MutationResult> {
+    const data = await callApi('PATCH', `/apps/${APP_IDS.AUFGABE}/records/${id}`, { fields: cleanFieldsForApi(fields as any, 'aufgabe') });
+    return { ...data, record_id: data.id };
+  }
+  static async deleteAufgabeEntry(id: string) {
+    const out = await callApi('DELETE', `/apps/${APP_IDS.AUFGABE}/records/${id}`);
+    void import('@/lib/publicDoors').then(m => m.deleteDoorsAfterDelete('aufgabe', id)).catch(() => {});
+    return out;
+  }
+
+}
+```
